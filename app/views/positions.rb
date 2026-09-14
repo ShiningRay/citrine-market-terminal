@@ -4,38 +4,110 @@ require_relative "common"
 
 module Market
   module Views
-    # 持仓面板：明细行由 ledger 快照驱动（只在成交时重建），
-    # 实时列（现价/市值/浮盈）由叶子块读行情信号 + 响应式 style 着色
-    # （每档只改文字与属性，**0 个新建节点**）。
-    module Positions
+    # 持仓行（子组件，key = 股票代码）。
+    #
+    # 列分两类，各自的订阅落在各自的叶子上：
+    #   · 快照列（持仓/可用/成本）读 ledger（仅成交时变，低频）；
+    #   · 实时列（现价/市值/浮盈/收益率）读该标的行情信号（每档变）。
+    # 两类的更新都只改文字/属性；行节点与整棵子树在行情变化时不动
+    # （F6 落地前这里是"父块读 quote 后把 style 传给子节点，每档重建这 4 个标签"）。
+    class PositionRow < Citrine::Component
       include Common
+
+      prop :code              # 股票代码（值：永不变化）
+      prop :name              # 名称（同上）
+      prop :quote_for         # ->(code) { quote_of(code) }
+      prop :position_for      # ->(code) { 持仓快照 }
+      prop :on_close          # ->(code) { 平仓 }
+      prop :on_cancel_orders  # ->(code) { 撤该标的挂单 }
+
+      def view
+        box(css_class: "pos-row") do
+          box(css_class: "pos-name", direction: :column) do
+            label(css_class: "wl-code") { code }
+            label(css_class: "wl-cn") { name }
+          end
+          label(css_class: "num") { qty(position[:quantity]) }
+          label(css_class: "num") { qty(position[:available]) }
+          label(css_class: "num") { money(position[:avg_cost]) }
+
+          # 实时列：三个数字各自的响应式 style 在本节点属性 Effect 里求值
+          box(css_class: "pos-live") do
+            label(css_class: "num") { money(quote[:last]) }
+            label(css_class: "num", style: -> { pnl_style }) { money(position_value) }
+            label(css_class: "num", style: -> { pnl_style }) { signed_money(position_pnl) }
+            label(css_class: "num", style: -> { pnl_style }) { pct(position_pnl_pct) }
+          end
+
+          box(css_class: "pos-act") do
+            chip("平仓", false, -> { on_close.call(code) })
+            chip("撤挂单", false, -> { on_cancel_orders.call(code) })
+          end
+        end
+      end
 
       private
 
-      def render_positions
+      def position
+        position_for.call(code)
+      end
+
+      def quote
+        quote_for.call(code)
+      end
+
+      def position_value
+        position[:quantity] * quote[:last]
+      end
+
+      def position_pnl
+        position[:quantity] * (quote[:last] - position[:avg_cost])
+      end
+
+      def position_pnl_pct
+        position[:avg_cost] > 0 ? quote[:last] / position[:avg_cost] - 1.0 : 0.0
+      end
+
+      def pnl_style
+        pct_style(position_pnl)
+      end
+    end
+
+    # 持仓面板（子组件）：汇总 + keyed 明细行。
+    class Positions < Citrine::Component
+      include Common
+
+      components PositionRow
+
+      prop :positions         # -> { account_positions }（code → 快照）
+      prop :position_for      # ->(code) { 单个持仓快照 }
+      prop :name_for          # ->(code) { engine_name(code) }
+      prop :quote_for         # ->(code) { quote_of(code) }
+      prop :summary           # -> { { market:, pnl:, available:, frozen: } }
+      prop :on_close          # ->(code) { ... }
+      prop :on_cancel_orders  # ->(code) { ... }
+      prop :on_close_all      # -> { ... }
+
+      def view
         panel("panel-pos") do # 容器块：不读信号
           panel_head("持仓") do # 工具区块：不读信号（动作在点击时求值）
-            chip("一键清仓", false, -> { close_all_positions })
+            chip("一键清仓", false, on_close_all)
           end
 
           # 汇总：读 computed（价格驱动）
           box(css_class: "pos-summary") do
-            stats = {
-              market: market_value,
-              pnl: unrealized_pnl,
-              available: account_available_cash,
-              frozen: account_frozen
-            }
+            stats = summary.call
             kv("持仓市值", money(stats[:market]))
             kv("浮动盈亏", signed_money(stats[:pnl]), pct_style(stats[:pnl]))
             kv("可用资金", money(stats[:available]))
             kv("冻结资金", money(stats[:frozen]))
           end
 
-          # 明细表：读 ledger（仅交易时重建整表）
+          # 明细表：读 ledger（仅交易时重跑）。行带 key（股票代码）：
+          # 买入/卖出/清仓只增删受影响的行，其余行的节点与订阅原样保留。
           box(css_class: "pos-table", direction: :column) do
-            positions = account_positions
-            if positions.empty?
+            rows = positions.call
+            if rows.empty?
               label(css_class: "empty") { "暂无持仓 · 在右侧下单面板买入试试" }
             else
               box(css_class: "pos-head") do
@@ -46,64 +118,14 @@ module Market
                 label(css_class: "num") { "现价 / 市值 / 浮盈 / 收益率" }
                 label { "操作" }
               end
-              positions.each { |code, position| render_position_row(code, position) }
+              rows.each_key do |code|
+                position_row(code: code, name: name_for.call(code), key: code,
+                             quote_for: quote_for, position_for: position_for,
+                             on_close: on_close, on_cancel_orders: on_cancel_orders)
+              end
             end
           end
         end
-      end
-
-      # 快照（code / position）由父块传入；行块本身不读信号
-      def render_position_row(code, position)
-        box(css_class: "pos-row") do
-          box(css_class: "pos-name", direction: :column) do
-            label(css_class: "wl-code") { code }
-            label(css_class: "wl-cn") { engine_name(code) }
-          end
-          label(css_class: "num") { qty(position[:quantity]) }
-          label(css_class: "num") { qty(position[:available]) }
-          label(css_class: "num") { money(position[:avg_cost]) }
-
-          # 实时列：读该标的行情。三个数字各自的响应式 style 在本节点属性 Effect 里
-          # 求值 → 每档只重设 style/文字，**0 个新建节点**（从前是容器块读 quote 后
-          # 把 style 传给子节点，每档重建这 4 个标签）。
-          box(css_class: "pos-live") do
-            label(css_class: "num") { money(quote_of(code)[:last]) }
-            label(css_class: "num", style: -> { position_style(code, position) }) do
-              money(position_value(code, position))
-            end
-            label(css_class: "num", style: -> { position_style(code, position) }) do
-              signed_money(position_pnl(code, position))
-            end
-            label(css_class: "num", style: -> { position_style(code, position) }) do
-              pct(position_pnl_pct(code, position))
-            end
-          end
-
-          box(css_class: "pos-act") do
-            chip("平仓", false, -> { close_position(code) })
-            chip("撤挂单", false, -> { cancel_orders_for(code) })
-          end
-        end
-      end
-
-      # ── 实时列的派生值（读行情信号；只在叶子块 / 属性 Proc 里调用）──
-
-      def position_value(code, position)
-        position[:quantity] * quote_of(code)[:last]
-      end
-
-      def position_pnl(code, position)
-        quote = quote_of(code)
-        position[:quantity] * (quote[:last] - position[:avg_cost])
-      end
-
-      def position_pnl_pct(code, position)
-        quote = quote_of(code)
-        position[:avg_cost] > 0 ? quote[:last] / position[:avg_cost] - 1.0 : 0.0
-      end
-
-      def position_style(code, position)
-        pct_style(position_pnl(code, position))
       end
     end
   end

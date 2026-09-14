@@ -4,50 +4,16 @@ require_relative "common"
 
 module Market
   module Views
-    # 成交记录 / 挂单面板：整表由信号驱动（成交与挂单都是低频事件，整体重建可接受）
-    module Logs
+    # 成交记录行（子组件，key = 成交号）。
+    #
+    # 成交是不可变快照（Trade 只在产生时构造一次），所以整行可以当**值**传：
+    # 它永远不会变，也就不会因为 props 变化触发重建（见 common.rb 纪律 3 的例外）。
+    class TradeRow < Citrine::Component
       include Common
 
-      private
+      prop :trade
 
-      def render_logs
-        panel("panel-log") do # 容器块：不读信号
-          panel_head("成交与挂单") do # 工具区块：读 log_tab
-            chip("成交记录", log_tab == :trades, -> { set_log_tab(:trades) })
-            chip("挂单", log_tab == :orders, -> { set_log_tab(:orders) })
-          end
-
-          # 表格：读 log_tab + 对应集合 → 事件驱动重建；行内全部是静态文字
-          box(css_class: "log-body", direction: :column) do
-            if log_tab == :orders
-              render_order_rows
-            else
-              render_trade_rows
-            end
-          end
-        end
-      end
-
-      def render_trade_rows
-        trades = account_trades
-        if trades.empty?
-          label(css_class: "empty") { "还没有成交记录 · 下单后在这里出现" }
-          return
-        end
-
-        box(css_class: "log-head") do
-          label(css_class: "num") { "档位" }
-          label { "标的" }
-          label { "方向" }
-          label(css_class: "num") { "成交价" }
-          label(css_class: "num") { "数量" }
-          label(css_class: "num") { "费用" }
-          label(css_class: "num") { "已实现盈亏" }
-        end
-        trades.first(14).each { |trade| render_trade_row(trade) }
-      end
-
-      def render_trade_row(trade)
+      def view
         box(css_class: "log-row") do
           label(css_class: "num dim") { trade.tick.to_s }
           label { trade.code }
@@ -62,10 +28,88 @@ module Market
           end
         end
       end
+    end
 
-      def render_order_rows
-        orders = account_orders
-        if orders.empty?
+    # 挂单行（子组件，key = 委托号）：撤单动作通过回调 prop 交回根组件。
+    class OrderRow < Citrine::Component
+      include Common
+
+      prop :order
+      prop :on_cancel         # ->(order_id) { ... }
+
+      def view
+        box(css_class: "log-row") do
+          label(css_class: "num dim") { order.placed_tick.to_s }
+          label { order.code }
+          label(css_class: order.side == :buy ? "side is-buy" : "side is-sell") { side_label(order.side) }
+          label(css_class: "num") { money(order.limit) }
+          label(css_class: "num") { qty(order.quantity) }
+          label(css_class: "num") { money(order.frozen) }
+          box(css_class: "pos-act") do
+            chip("撤单", false, -> { on_cancel.call(order.id) })
+          end
+        end
+      end
+    end
+
+    # 成交 / 挂单面板（子组件）：标签页是本面板自己的 state。
+    class Logs < Citrine::Component
+      include Common
+
+      components TradeRow, OrderRow
+
+      prop :trades            # -> { account_trades }
+      prop :orders            # -> { account_orders }
+      prop :on_cancel         # ->(order_id) { cancel_order(order_id) }
+
+      state :tab, default: :trades
+
+      def view
+        panel("panel-log") do # 容器块：不读信号
+          panel_head("成交与挂单") do # 工具区块：读本面板的 tab
+            chip("成交记录", tab == :trades, -> { self.tab = :trades })
+            chip("挂单", tab == :orders, -> { self.tab = :orders })
+          end
+
+          # 表格：读 tab + 对应集合 → 事件驱动重跑。行带 key（成交号 / 委托号）：
+          # 新来一笔成交只是插入一行，已有行的节点与实例全部保留。
+          #
+          # 两张表直接放在同一层：行按各自 key 的组件身份区分与复用
+          # （框架侧 F24 已修：新组件的根不会再被按位置复用到旧组件的根上）。
+          box(css_class: "log-body", direction: :column) do
+            if tab == :orders
+              order_rows
+            else
+              trade_rows
+            end
+          end
+        end
+      end
+
+      private
+
+      def trade_rows
+        list = trades.call
+        if list.empty?
+          label(css_class: "empty") { "还没有成交记录 · 下单后在这里出现" }
+          return
+        end
+
+        box(css_class: "log-head") do
+          label(css_class: "num") { "档位" }
+          label { "标的" }
+          label { "方向" }
+          label(css_class: "num") { "成交价" }
+          label(css_class: "num") { "数量" }
+          label(css_class: "num") { "费用" }
+          label(css_class: "num") { "已实现盈亏" }
+        end
+        list.first(14).each { |trade| trade_row(trade: trade, key: trade.id) }
+      end
+
+      def order_rows
+        list = orders.call
+        if list.empty?
           label(css_class: "empty") { "无挂单 · 限价单会在这里排队等待成交" }
           return
         end
@@ -79,21 +123,7 @@ module Market
           label(css_class: "num") { "冻结资金" }
           label { "操作" }
         end
-        orders.each { |order| render_order_row(order) }
-      end
-
-      def render_order_row(order)
-        box(css_class: "log-row") do
-          label(css_class: "num dim") { order.placed_tick.to_s }
-          label { order.code }
-          label(css_class: order.side == :buy ? "side is-buy" : "side is-sell") { side_label(order.side) }
-          label(css_class: "num") { money(order.limit) }
-          label(css_class: "num") { qty(order.quantity) }
-          label(css_class: "num") { money(order.frozen) }
-          box(css_class: "pos-act") do
-            chip("撤单", false, -> { cancel_order(order.id) })
-          end
-        end
+        list.each { |order| order_row(order: order, key: order.id, on_cancel: on_cancel) }
       end
     end
   end

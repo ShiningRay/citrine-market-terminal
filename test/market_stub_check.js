@@ -61,6 +61,8 @@ const inputs = () => all(app).filter((n) => n.tagName === "input");
 const texts = (el) => all(el).map((n) => n.textContent).filter((t) => t && String(t).trim() !== "");
 const rowText = (el) => texts(el).join("|");
 const submitBtn = () => all(app).find((n) => String(n.className).includes("btn-submit"));
+// 限价输入框按需现取：它会随委托类型（市价/限价）出现或消失，节点身份不保证跨模式稳定
+const limitField = () => inputs().find((n) => n !== qtyInput);
 function click(el, what) {
   if (!el) { failures += 1; console.log(`✗ ${what}：元素未找到`); return false; }
   el.fire("click");
@@ -165,6 +167,30 @@ const liveAfter = allByClass("pos-live")[0].children;
 eq("持仓实时列是同一批 DOM 节点", liveBefore.every((c, i) => c === liveAfter[i]), true);
 ok("持仓浮盈文字随行情更新", /[0-9]/.test(String(liveAfter[2].textContent)), liveAfter[2].textContent);
 
+console.log("\n=== 面板是独立组件：面板内部状态更新不重建兄弟面板 ===");
+// 图表取样（蜡烛/分时）是 Chart 面板自己的 state，日志标签页是 Logs 面板自己的 state。
+// 改它们只该重跑本面板内部的那一块，兄弟面板的自选行/持仓行/下单输入框都不动。
+const rowsBeforeMode = allByClass("wl-row");
+const posRowsBeforeMode = allByClass("pos-row");
+const tickBeforeMode = state().tick;
+click(byText("button", "分时"), "分时 chip");
+ok("图表切到分时（重绘为分时柱）", allByClass("minute-bar").length >= 20, allByClass("minute-bar").length);
+ok("分时 chip 进入选中态", String(byText("button", "分时").className).includes("is-on"), byText("button", "分时").className);
+eq("图表内部状态更新不重建自选行", rowsBeforeMode.every((r, i) => r === allByClass("wl-row")[i]), true);
+eq("图表内部状态更新不重建持仓行", posRowsBeforeMode.every((r, i) => r === allByClass("pos-row")[i]), true);
+eq("图表内部状态更新不重建下单输入框", inputs().includes(qtyInput), true);
+eq("图表内部状态更新不影响行情推进", state().tick, tickBeforeMode);
+click(byText("button", "蜡烛"), "蜡烛 chip（复原）");
+ok("切回蜡烛图", allByClass("candle").length >= 20, allByClass("candle").length);
+
+const rowsBeforeTab = allByClass("wl-row");
+click(byText("button", "挂单"), "挂单标签页");
+eq("日志面板内部切页不重建自选行", rowsBeforeTab.every((r, i) => r === allByClass("wl-row")[i]), true);
+eq("日志面板内部切页不重建下单输入框", inputs().includes(qtyInput), true);
+ok("无挂单时显示空态", hasText("无挂单"), true);
+click(byText("button", "成交记录"), "成交记录标签页");
+ok("切回成交记录后成交行重新出现", allByClass("log-row").length >= 1, allByClass("log-row").length);
+
 console.log("\n=== 限价挂单 / 撤单 ===");
 click(byText("button", "限价"), "限价 chip");
 const limitInput = inputs().find((n) => n !== qtyInput);
@@ -187,6 +213,40 @@ s = state();
 eq("撤单后挂单数", s.orders, "0");
 eq("冻结资金归零", s.frozen, "0.00");
 
+console.log("\n=== keyed 复用：插入 / 删除行不换已有行 ===");
+// 挂单行（OrderRow，key = 委托号）：再挂一笔，已有行必须是同一个 DOM 对象
+click(byText("button", "买入"), "买入 chip");
+type(qtyInput, "100");
+type(limitField(), (Number(state().ask) * 0.98).toFixed(2));
+click(submitBtn(), "提交按钮（第一笔挂单）");
+const orderRowsFirst = allByClass("log-row");
+eq("挂单行数（第一笔）", orderRowsFirst.length, 1);
+key("ArrowDown"); // 换股：选中标的变了，但挂单行本身不该动
+const ask2 = Number(state().ask);
+type(limitField(), (ask2 * 0.98).toFixed(2));
+click(submitBtn(), "提交按钮（第二笔挂单）");
+const orderRowsSecond = allByClass("log-row");
+eq("挂单行数（第二笔）", orderRowsSecond.length, 2);
+eq("新增挂单不换已有挂单行（keyed 复用）", orderRowsSecond.includes(orderRowsFirst[0]), true);
+// 撤掉新挂的那笔：老挂单行仍是同一个节点（删除只影响被删的那一行）
+const cancelButtons = all(app).filter((n) => n.tagName === "button" && n.textContent === "撤单");
+click(cancelButtons[cancelButtons.length - 1], "第二笔撤单");
+const orderRowsAfterCancel = allByClass("log-row");
+eq("撤单后剩一行", orderRowsAfterCancel.length, 1);
+eq("删除另一行不影响已有行节点", orderRowsAfterCancel[0] === orderRowsFirst[0], true);
+
+// 持仓行（PositionRow，key = 股票代码）：再买一只标的，原持仓行必须是同一个 DOM 对象
+const heldRowsFirst = allByClass("pos-row");
+eq("此前的持仓行数", heldRowsFirst.length, 1);
+click(byText("button", "市价"), "市价 chip");
+type(qtyInput, "100");
+click(submitBtn(), "提交按钮（买入第二只）");
+const heldRowsSecond = allByClass("pos-row");
+eq("持仓行数（新增一只）", heldRowsSecond.length, 2);
+eq("新增持仓不换已有持仓行（keyed 复用）", heldRowsFirst.every((r) => heldRowsSecond.includes(r)), true);
+eq("新增持仓行是新节点", heldRowsSecond.filter((r) => !heldRowsFirst.includes(r)).length, 1);
+click(byText("button", "限价"), "限价 chip（复原委托类型）");
+
 console.log("\n=== 非法输入校验 ===");
 type(qtyInput, "150");
 click(submitBtn(), "提交按钮");
@@ -197,18 +257,29 @@ ok("非数字报错", String(state().alert).includes("数量无效"), state().al
 type(qtyInput, "100");
 
 console.log("\n=== 涨跌停限价校验 ===");
-type(limitInput, "99999.00");
+type(limitField(), "99999.00");
 click(submitBtn(), "提交按钮");
 ok("超涨跌停区间被拒", String(state().alert).includes("涨跌停"), state().alert);
 
 console.log("\n=== 排序 ===");
 eq("默认排序键", state().sort, "code");
 const beforeOrder = allByClass("wl-row").map(rowText);
+const rowsBeforeSort = allByClass("wl-row");
+const draftBeforeSort = qtyInput.value;
 click(byText("button", "涨跌幅"), "涨跌幅 chip");
 const afterOrder = allByClass("wl-row").map(rowText);
 eq("排序键已切换", state().sort, "change");
 ok("按涨跌幅重排后顺序变化", JSON.stringify(beforeOrder) !== JSON.stringify(afterOrder));
 eq("排序不丢行", allByClass("wl-row").length, 10);
+// keyed 复用（WatchRow，key = 股票代码）：重排是"移动真实节点"，不是"重建行"
+const rowsAfterSort = allByClass("wl-row");
+eq("重排后自选行仍是同一批 DOM 对象",
+  rowsAfterSort.length === rowsBeforeSort.length && rowsBeforeSort.every((r) => rowsAfterSort.includes(r)), true);
+eq("重排后 DOM 顺序与新顺序一致", rowsAfterSort.map(rowText).join("|"), afterOrder.join("|"));
+// 行重排期间，兄弟面板（下单）的输入框与草稿不受影响：焦点丢失的机制就是节点被替换，
+// 桩里没有焦点引擎，用"同一 DOM 对象 + 草稿值不变"锁定（真机等价于焦点不丢）
+eq("排序（行重排）后数量输入框仍是同一节点", inputs().includes(qtyInput), true);
+eq("排序后输入框草稿仍在", qtyInput.value, draftBeforeSort);
 
 console.log("\n=== 暂停 / 变速 / 快捷键 ===");
 click(byText("button", "⏸ 暂停"), "暂停 chip");
@@ -222,7 +293,13 @@ key("3");
 eq("快捷键 3 → 4x", state().speed, "4");
 const selectedBefore = state().selected;
 const rowsBeforeSwap = allByClass("wl-row");
+// 图表取样粒度是 Chart 面板自己的 state；换股时由根组件调用面板的方法复位（跨组件改子状态）
+const candlesFine = allByClass("candle").length;
+click(byText("button", "粗"), "粗 chip");
+const candlesCoarse = allByClass("candle").length;
+ok(`切到粗粒度：蜡烛数变少（${candlesFine} → ${candlesCoarse}）`, candlesCoarse > 0 && candlesCoarse < candlesFine, candlesCoarse);
 key("ArrowDown");
+ok(`换股后图表取样粒度复位（蜡烛回到 ${allByClass("candle").length}）`, allByClass("candle").length === candlesFine, allByClass("candle").length);
 ok(`↑↓ 换股（${selectedBefore} → ${state().selected}）`, state().selected !== selectedBefore);
 
 // 响应式 css_class：换股只重设两行的 class，行节点本身复用
@@ -248,8 +325,17 @@ eq("点回 1x", state().speed, "1");
 console.log("\n=== 自动交易 ===");
 click(byText("button", "自动交易 关"), "自动交易 chip");
 const tradesBefore = Number(state().trades);
+click(byText("button", "成交记录"), "成交记录标签页");
+const tradeRowsMid = allByClass("log-row");
+const tradesMid = Number(state().trades);
+eq("成交行数 = min(成交笔数, 14)", tradeRowsMid.length, Math.min(tradesMid, 14));
 window.citrineTestApi.runTicks(25);
 ok(`自动交易产生新成交（${tradesBefore} → ${state().trades}）`, Number(state().trades) > tradesBefore);
+// 成交行（TradeRow，key = 成交号）：新成交只是插入新行，已有行节点与实例全部保留
+const tradeRowsLater = allByClass("log-row");
+eq("已有成交行全部保留（keyed 复用）", tradeRowsMid.every((r) => tradeRowsLater.includes(r)), true);
+ok(`新成交插入为新行（${tradesMid} → ${state().trades}）`,
+  Number(state().trades) <= tradesMid || tradeRowsLater[0] !== tradeRowsMid[0], true);
 click(byText("button", "自动交易 开"), "自动交易 chip（关闭）");
 
 console.log("\n=== 一键清仓与重置 ===");

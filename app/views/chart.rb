@@ -4,31 +4,41 @@ require_relative "common"
 
 module Market
   module Views
-    # 图表面板：纯 div 绘制的蜡烛图 / 分时图 + 均线点 + 成交量柱。
+    # 图表面板（子组件）：纯 div 绘制的蜡烛图 / 分时图 + 均线点 + 成交量柱。
     #
     # 为什么用 div 而不是 Canvas：CanvasRenderer 会独占一整块 canvas 元素，
     # 无法嵌进 DOM 布局里的一个小面板（渲染器之间不能混合，见 FRICTION.md 的 F8）。
-    module ChartPanel
+    #
+    # 取样粒度（mode / bucket）是**本面板自己的 state**：它只影响这张图，与账户、
+    # 自选、下单无关，没必要挂在根组件上（F5 落地前只能全挂在 Terminal 上）。
+    class Chart < Citrine::Component
       include Common
 
       PLOT_HEIGHT = 190
       VOLUME_HEIGHT = 46
 
-      private
+      prop :selected        # -> { selected }                      当前标的
+      prop :quote_for       # ->(code) { quote_of(code) }
+      prop :series_for      # ->(code) { series_of(code) }          逐档价序列
+      prop :candles_for     # ->(code, bucket) { 聚合后的蜡烛 }
+      prop :indicators_for  # ->(code) { indicator_snapshot(code) }
 
-      def render_chart
+      state :mode, default: :candle
+      state :bucket, default: 3
+
+      def view
         panel("panel-chart") do # 容器块：不读信号
-          panel_head("行情走势") do # 工具区块：读 chart_mode / chart_bucket
-            chip("蜡烛", chart_mode == :candle, -> { set_chart_mode(:candle) })
-            chip("分时", chart_mode == :minute, -> { set_chart_mode(:minute) })
-            chip("细", chart_bucket == 1, -> { set_chart_bucket(1) })
-            chip("中", chart_bucket == 3, -> { set_chart_bucket(3) })
-            chip("粗", chart_bucket == 8, -> { set_chart_bucket(8) })
+          panel_head("行情走势") do # 工具区块：读本面板的 mode / bucket
+            chip("蜡烛", mode == :candle, -> { self.mode = :candle })
+            chip("分时", mode == :minute, -> { self.mode = :minute })
+            chip("细", bucket == 1, -> { self.bucket = 1 })
+            chip("中", bucket == 3, -> { self.bucket = 3 })
+            chip("粗", bucket == 8, -> { self.bucket = 8 })
           end
 
-          # 标的名 + 大字报价：颜色随涨跌变 → 外层块读，内层静态
+          # 标的名 + 大字报价：颜色随涨跌变 → 本块读 quote，内层静态
           box(css_class: "chart-head") do
-            quote = quote_of(selected)
+            quote = quote_for.call(selected.call)
             style = pct_style(quote[:change])
             label(css_class: "chart-name") { "#{quote[:name]} · #{quote[:code]} · #{quote[:sector]}" }
             label(css_class: "chart-last num", style: style) { money(quote[:last]) }
@@ -38,11 +48,20 @@ module Market
             label(css_class: "chart-flag") { chart_flag(quote) }
           end
 
-          render_chart_canvas
-          render_chart_quote_stats
-          render_chart_tech_stats
+          render_canvas
+          render_quote_stats
+          render_tech_stats
         end
       end
+
+      # 换股时把取样粒度复位（根组件在切换标的时调用：子组件自己拥有 bucket，
+      # 只有它知道"复位"意味着什么；框架暂无可从父组件直接改子 state 的原语，见 FRICTION）
+      def reset_bucket
+        self.bucket = 3
+        self
+      end
+
+      private
 
       def chart_flag(quote)
         return "涨停" if quote[:limit_up_hit]
@@ -51,18 +70,18 @@ module Market
         quote[:direction] == :up ? "上行" : (quote[:direction] == :down ? "下行" : "持平")
       end
 
-      # 绘图区：读 selected / chart_mode / chart_bucket / series → 每 chart_every 档重建一次
-      def render_chart_canvas
+      # 绘图区：读 selected / mode / bucket / series → 换股或每 chart_every 档重跑一次
+      def render_canvas
         box(css_class: "chart-canvas", direction: :column, gap: 6) do
-          code = selected
-          mode = chart_mode
-          series = series_of(code)
-          bucket = chart_bucket
+          code = selected.call
+          current_mode = mode
+          series = series_for.call(code)
+          current_bucket = bucket
 
           if series.empty?
             label(css_class: "chart-empty") { "等待行情数据…" }
           else
-            bars = build_bars(code, series, mode, bucket)
+            bars = build_bars(code, series, current_mode, current_bucket)
             highs = bars.map { |b| b[:high] }
             lows = bars.map { |b| b[:low] }
             hi = highs.max
@@ -81,7 +100,7 @@ module Market
                 left = i * slot
                 up = bar[:close] >= bar[:open]
                 color = up ? Format::UP_COLOR : Format::DOWN_COLOR
-                if mode == :candle
+                if current_mode == :candle
                   box(css_class: "wick", style: {
                         left: "#{Num.round_to(left + slot * 0.48, 2)}%",
                         width: "1px",
@@ -140,15 +159,18 @@ module Market
                       background: bar[:close] >= bar[:open] ? Format::UP_COLOR : Format::DOWN_COLOR
                     }) {}
               end
+              # 分时模式的 volume 全为 0 → 一根柱子都不画：显式返回 nil，别让 each 的数组
+              # 变成块的结果（F16 会按 to_s 渲染整串成交量数据）
+              nil
             end
           end
         end
       end
 
-      # 行情快照数字：读 quote（每 tick 变）→ 纯文本单元
-      def render_chart_quote_stats
+      # 行情快照数字：读 quote（每档变）→ 纯文本单元
+      def render_quote_stats
         box(css_class: "stat-strip") do
-          quote = quote_of(selected)
+          quote = quote_for.call(selected.call)
           kv("今开", money(quote[:open]))
           kv("最高", money(quote[:high]))
           kv("最低", money(quote[:low]))
@@ -162,9 +184,9 @@ module Market
       end
 
       # 技术指标：读序列（每 chart_every 档变）→ 纯文本单元
-      def render_chart_tech_stats
+      def render_tech_stats
         box(css_class: "stat-strip") do
-          indicator = indicator_snapshot(selected)
+          indicator = indicators_for.call(selected.call)
           kv("SMA5", money(indicator[:sma5]), { color: "#f59e0b" })
           kv("SMA20", money(indicator[:sma20]), { color: "#38bdf8" })
           kv("RSI14", money(indicator[:rsi], 1))
@@ -177,7 +199,7 @@ module Market
       def build_bars(code, series, mode, bucket)
         raw =
           if mode == :candle
-            @engine.candles(code, bucket: bucket, limit: 48)
+            candles_for.call(code, bucket)
           else
             series.last(60).map { |value| { open: value, high: value, low: value, close: value, volume: 0.0 } }
           end
