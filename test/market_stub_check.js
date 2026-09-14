@@ -19,7 +19,14 @@ function makeEl(tag) {
   return {
     tagName: tag, textContent: "", className: "", value: "", checked: false,
     style: {}, children: [], parentElement: null, _listeners: {},
-    appendChild(c) { c.parentElement = this; this.children.push(c); return c; },
+    // 真实 DOM 的 appendChild 是"移动"：已在别处的节点先摘下来，已在同一父下的也移到末尾
+    appendChild(c) {
+      if (c.parentElement && c.parentElement !== this) c.parentElement.removeChild(c);
+      this.children = this.children.filter((x) => x !== c);
+      c.parentElement = this;
+      this.children.push(c);
+      return c;
+    },
     removeChild(c) { c.parentElement = null; this.children = this.children.filter((x) => x !== c); },
     addEventListener(ev, fn) { (this._listeners[ev] = this._listeners[ev] || []).push(fn); },
     fire(ev, event) { (this._listeners[ev] || []).forEach((fn) => fn(event || {})); },
