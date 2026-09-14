@@ -248,9 +248,9 @@ module Market
       fills
     end
 
-    # 追加权益曲线采样点（超上限丢最旧的）：一次 replace = 一次通知
+    # 追加权益曲线采样点（超上限丢最旧的）：框架的 push_bounded 保证只通知一次
     def mark!(equity)
-      @curve.replace((@curve.get + [Num.round_to(equity, 2)]).last(CURVE_LIMIT))
+      @curve.push_bounded(Num.round_to(equity, 2), CURVE_LIMIT)
       self
     end
 
@@ -283,8 +283,8 @@ module Market
         @fees += est[:fee]
         (@lots[code] ||= []) << Lot.new(quantity, est[:total], tick)
         trade = Trade.new(next_trade_id, code, :buy, quantity, price, est[:fee], 0.0, 0.0, tick)
-        # 成交笔数有上限：插入 + 截断写成一次 replace，集合只通知一次
-        @trades.replace(([trade] + @trades.get).first(TRADE_LIMIT))
+        # 成交笔数有上限：框架的 unshift_bounded 保证只通知一次
+        @trades.unshift_bounded(trade, TRADE_LIMIT)
         publish!(tick)
         return success("成交：买入 #{Format.qty(quantity)} 股 @ #{Format.money(price)}（手续费 #{Format.money(est[:fee])}）", trade)
       end
@@ -302,8 +302,8 @@ module Market
       @closed += 1
       @wins += 1 if realized > 0
       trade = Trade.new(next_trade_id, code, :sell, quantity, price, est[:fee], est[:tax], realized, tick)
-      # 成交笔数有上限：插入 + 截断写成一次 replace，集合只通知一次
-      @trades.replace(([trade] + @trades.get).first(TRADE_LIMIT))
+      # 成交笔数有上限：框架的 unshift_bounded 保证只通知一次
+      @trades.unshift_bounded(trade, TRADE_LIMIT)
       publish!(tick)
       success("成交：卖出 #{Format.qty(quantity)} 股 @ #{Format.money(price)}" \
               "（已实现盈亏 #{Format.signed_money(realized)}，费用 #{Format.money(est[:fee] + est[:tax])}）", trade)
