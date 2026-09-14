@@ -6,7 +6,13 @@
 #   - 100 股整手，佣金万 2.5、最低 5 元，卖出加收千 0.5 印花税
 #   - T+1：当日买入的批次当日不可卖（Lot#buy_tick < 当前档位 才可用）
 #   - 限价单挂单时冻结资金；成交/撤单解冻；市价单即时成交
-#   - 全部状态以快照 Hash 经 Citrine::Signal 发布：值不变时 Signal#set 自动跳过
+#   - 标量/派生状态（现金、持仓、冻结…）由 ledger 快照信号发布：值不变时 Signal#set 自动跳过
+#   - 三份追加型集合（挂单 / 成交 / 曲线）用响应式集合 ListSignal：改集合本身就是通知，
+#     不再"维护普通数组 + 改动末尾补一句 signal.set(array.dup)"（框架 PR #21 的 D 组）
+#
+# 集合写法的两条纪律：
+#   1. 一次逻辑变更只通知一次——"追加后截断"要写成一次 replace，不能写成 `<<` 再 `shift`；
+#   2. 迭代中删除用 `get.dup.each`（get 返回冻结快照，dup 出的副本可安全迭代）。
 require "citrine"
 require_relative "num"
 require_relative "format"
@@ -45,15 +51,12 @@ module Market
       @fees = 0.0
       @closed = 0
       @wins = 0
-      @orders = []
-      @trades = []
-      @curve = []
+      @orders = signal_list([])
+      @trades = signal_list([])
+      @curve = signal_list([])
       @order_seq = 0
       @trade_seq = 0
       @ledger_signal = signal { build_ledger(tick) }
-      @orders_signal = signal([])
-      @trades_signal = signal([])
-      @curve_signal = signal([])
     end
 
     # ── 响应式读取（在 block / computed 中读取即建立依赖）──────────
@@ -99,16 +102,17 @@ module Market
       closed.zero? ? nil : ledger[:wins].to_f / closed
     end
 
+    # 集合读取：ListSignal#get 返回**冻结**快照（就地改会当场 FrozenError，而不是静默不更新）
     def orders
-      @orders_signal.get
+      @orders.get
     end
 
     def trades
-      @trades_signal.get
+      @trades.get
     end
 
     def curve
-      @curve_signal.get
+      @curve.get
     end
 
     def frozen_amount
@@ -203,7 +207,8 @@ module Market
     end
 
     def cancel_order(order_id, tick:)
-      order = @orders.find { |o| o.id == order_id }
+      # ListSignal 的读 API 没有 find，先取快照（get）再查——快照是冻结的普通数组
+      order = @orders.get.find { |o| o.id == order_id }
       return failure("委托不存在或已成交") if order.nil?
 
       @orders.delete(order)
@@ -219,7 +224,8 @@ module Market
 
       fills = []
       changed = false
-      @orders.dup.each do |order|
+      # 迭代中会删挂单：get 已是冻结快照，再 dup 一份可安全遍历（列表本身不会被就地改）
+      @orders.get.dup.each do |order|
         price = prices[order.code]
         next if price.nil?
 
@@ -242,11 +248,9 @@ module Market
       fills
     end
 
-    # 追加权益曲线采样点
+    # 追加权益曲线采样点（超上限丢最旧的）：一次 replace = 一次通知
     def mark!(equity)
-      @curve << Num.round_to(equity, 2)
-      @curve.shift if @curve.size > CURVE_LIMIT
-      @curve_signal.set(@curve.dup)
+      @curve.replace((@curve.get + [Num.round_to(equity, 2)]).last(CURVE_LIMIT))
       self
     end
 
@@ -279,8 +283,8 @@ module Market
         @fees += est[:fee]
         (@lots[code] ||= []) << Lot.new(quantity, est[:total], tick)
         trade = Trade.new(next_trade_id, code, :buy, quantity, price, est[:fee], 0.0, 0.0, tick)
-        @trades.unshift(trade)
-        @trades = @trades.first(TRADE_LIMIT)
+        # 成交笔数有上限：插入 + 截断写成一次 replace，集合只通知一次
+        @trades.replace(([trade] + @trades.get).first(TRADE_LIMIT))
         publish!(tick)
         return success("成交：买入 #{Format.qty(quantity)} 股 @ #{Format.money(price)}（手续费 #{Format.money(est[:fee])}）", trade)
       end
@@ -298,8 +302,8 @@ module Market
       @closed += 1
       @wins += 1 if realized > 0
       trade = Trade.new(next_trade_id, code, :sell, quantity, price, est[:fee], est[:tax], realized, tick)
-      @trades.unshift(trade)
-      @trades = @trades.first(TRADE_LIMIT)
+      # 成交笔数有上限：插入 + 截断写成一次 replace，集合只通知一次
+      @trades.replace(([trade] + @trades.get).first(TRADE_LIMIT))
       publish!(tick)
       success("成交：卖出 #{Format.qty(quantity)} 股 @ #{Format.money(price)}" \
               "（已实现盈亏 #{Format.signed_money(realized)}，费用 #{Format.money(est[:fee] + est[:tax])}）", trade)
@@ -398,14 +402,9 @@ module Market
       }
     end
 
+    # 挂单 / 成交 / 曲线已由各自的 ListSignal 在变更处通知，这里只发布账本快照
     def publish!(tick)
       @ledger_signal.set(build_ledger(tick))
-      @orders_signal.set(@orders.dup)
-      @trades_signal.set(@trades.dup)
-    end
-
-    def publish_orders!
-      @orders_signal.set(@orders.dup)
     end
 
     def next_trade_id
