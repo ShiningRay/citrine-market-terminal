@@ -56,6 +56,7 @@ module Market
   ].freeze
 
   class Engine
+    include Citrine::Reactive
     HISTORY = 120            # 保留的逐档数（也是预热档数）
     LIMIT_PCT = 0.10         # 涨跌停 ±10%
     JUMP_PROB = 0.012        # 单档跳空概率
@@ -108,7 +109,7 @@ module Market
       @books = {}
       @quote_signals = {}
       @series_signals = {}
-      @tick_signal = Citrine::Signal.new(0)
+      @tick_signal = signal(0)
       specs.each do |spec|
         @books[spec.code] = Book.new(spec)
       end
@@ -164,12 +165,12 @@ module Market
 
     # 响应式：最新行情快照信号（每档更新）
     def quote_signal(code)
-      @quote_signals[code] ||= Citrine::Signal.new(quote(code))
+      @quote_signals[code] ||= signal { quote(code) }
     end
 
     # 响应式：序列快照信号（节流用：仅每 chart_every 档更新一次）
     def series_signal(code)
-      @series_signals[code] ||= Citrine::Signal.new(series(code))
+      @series_signals[code] ||= signal { series(code) }
     end
 
     def quote(code)

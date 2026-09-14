@@ -27,7 +27,7 @@
 | F19 | ✅ 已修复 | `check_box(checked: signal)` 读取信号并保持响应（Effect 订阅），不再恒为 true |
 | F20 | ✅ 已修复 | `text_input(value: "字面量")` 初值落到 DOM，与 SSR 输出一致 |
 | F12–F13 | ✅ 已落地 | 框架提供 `Citrine::Num`：`idiv`（floor 语义）、`round_to`（半值远离零，digits≤0 → Integer / >0 → Float）、`round` / `integral?` / `finite?` / `percent`，并自带语义测试。本仓库那份手写实现（原 `app/num.rb`，39 行）已删除，只留 `Num = Citrine::Num` 别名（第七节） |
-| F14 | ✅ 文档已补 | README「技术备忘」置顶：整数除法、负数取整、`::Signal` 遮蔽三条跨平台陷阱 |
+| F14 | ✅ 已修（citrine PR #20） | 三个信号创建入口落地（`Citrine.signal` / `Citrine::Reactive` / `keyed_signal`），不必再手写 `Citrine::Signal.new`，也不可能裸写撞上 `::Signal`；本仓库 7 处已替换 |
 | F3/F5/F6 | ✅ F5/F6 已落地，F3 仍待办 | **组件嵌套 + keyed 复用**已进 main（citrine PR #15，2026-09-14）：`render(Child, **props, key:)` 原语 + `components` 类宏 + 调和（父块重跑时按 key 复用子组件实例与根节点）。本文第五节的绕法纪律随之改写：**"输入框所在的块不读信号"已退休**（keyed/位置复用保证重跑命中同一节点），"容器块不读信号 / 快照由父块下发"仍然成立。F3（批量更新）仍未落地 |
 | F8/F9/F11/F15/F23/F25 | ⏳ 待办 | 见第六节优先级表。其中 **F9（可观测性）仍未解决**：本仓库与姊妹仓库 citrine-sheets 各自 `class_eval` 包装框架内部一遍，两处埋点都还在等官方钩子（第七节 7.5）；F23（box 默认方向）属行为变更，改前需公告；**F24 / F25 是本次迁移撞出来的新缺口**（F24：同一位置换组件类型 → 新组件的根元素按位置复用旧组件的根节点；F25：父组件拿不到子组件实例）——**F24 已随 citrine PR #18 修复**（复用按 owner 收口，见第二节），仓库侧规避写法已删；F25 仍待框架给"父可见的子组件引用" |
 
@@ -381,7 +381,7 @@ DOM 与 StringRenderer 两端都映射（`disabled` 尤其重要：现在**没�
 
 **【证据】**【实测】同上语义对照。**【改法】** 同上：取整先取绝对值再回贴符号。`Citrine::Num.round_to` 已是这个语义（`round_to(-1.5, 0) # => -2`）。
 
-### F14. 组件内写裸 `Signal` 会命中 corelib 的 `::Signal`
+### F14. 组件内写裸 `Signal` 会命中 corelib 的 `::Signal` ✅**已修（citrine PR #20）**
 
 **【现象】** Ruby 标准库（以及 Opal corelib）里都有一个 `::Signal`（进程信号）。
 在组件里写 `Signal.new(...)` 会拿到那个空类，随后报 `undefined method 'get'`——
@@ -389,9 +389,17 @@ DOM 与 StringRenderer 两端都映射（`disabled` 尤其重要：现在**没�
 
 **【证据】**【实测】审计 `docs/citrine-v1-audit.md` 问题 6。
 
-**【建议改法】** 在 `lib/citrine/component.rb` 里提供 `Component#signal_for(key, default)` /
-`dynamic_state` 宏（见 F6），让用户**不必**手写 `Citrine::Signal.new`；
-并在文档中把"必须写全限定名"写成显式警告。
+**【已修·citrine PR #20】** 采纳"让用户不必手写 `Citrine::Signal.new`"的方向，给了三个入口
+（README 陷阱 3 改写为"不要写出裸的 `Signal`"）：
+
+- `Citrine.signal(v)` / `Citrine.signal { 惰性初值 }`——模块级工厂，哪儿都能用
+- `include Citrine::Reactive`——普通类里直接写 `signal(v)`（本仓库的 `Engine` / `Account`
+  已改用它，`@quote_signals[code] ||= signal { quote(code) }` 这类写法比原来短一截，
+  而且**不可能再撞上 `::Signal`**）
+- `Component#keyed_signal(name, key) { 初值 }`——组件内按 key 记忆的信号表
+  （对应本条原本提的 `signal_for` / `dynamic_state` 诉求；名字取更说明意图的那个）
+
+本仓库 7 处 `Citrine::Signal.new` 已全部替换，`rake check`（单测 + 98 项桩断言 + parity）全绿。
 
 ### F15. `require_relative` 的入口路径必须相对 CWD（从外部目录编译会失败）
 

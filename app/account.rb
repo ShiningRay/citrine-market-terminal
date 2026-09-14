@@ -23,6 +23,8 @@ module Market
   Trade = Struct.new(:id, :code, :side, :quantity, :price, :fee, :tax, :realized, :tick)
 
   class Account
+    include Citrine::Reactive
+
     COMMISSION_RATE = 0.00025
     MIN_COMMISSION = 5.0
     STAMP_TAX_RATE = 0.0005
@@ -48,10 +50,10 @@ module Market
       @curve = []
       @order_seq = 0
       @trade_seq = 0
-      @ledger_signal = Citrine::Signal.new(build_ledger(tick))
-      @orders_signal = Citrine::Signal.new([])
-      @trades_signal = Citrine::Signal.new([])
-      @curve_signal = Citrine::Signal.new([])
+      @ledger_signal = signal { build_ledger(tick) }
+      @orders_signal = signal([])
+      @trades_signal = signal([])
+      @curve_signal = signal([])
     end
 
     # ── 响应式读取（在 block / computed 中读取即建立依赖）──────────
