@@ -68,9 +68,9 @@ module Market
                 ratio = (value - lo) / range * 100.0
                 ratio = 0.5 if ratio < 0.5
                 box(css_class: "curve-bar", style: {
-                      left: "#{Num.round2(i * slot)}%",
-                      width: "#{Num.round2(slot * 0.9)}%",
-                      height: "#{Num.round2(ratio)}%",
+                      left: "#{Num.round_to(i * slot, 2)}%",
+                      width: "#{Num.round_to(slot * 0.9, 2)}%",
+                      height: "#{Num.round_to(ratio, 2)}%",
                       background: value >= points.first ? "#f6465d" : "#0ecb81"
                     }) {}
               end

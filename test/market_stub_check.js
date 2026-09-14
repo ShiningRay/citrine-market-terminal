@@ -97,13 +97,28 @@ beat(5); // 200ms×5 ≈ 1 档（1x 下 850ms 一档）
 let s = state();
 ok(`tick 已推进（tick=${s.tick}）`, Number(s.tick) >= 1);
 ok(`每档 Effect 重跑 ${s.effects} 次（< 400）`, Number(s.effects) > 0 && Number(s.effects) < 400);
-ok(`每档新建 DOM 节点 ${s.nodes} 个（< 250）`, Number(s.nodes) < 250);
+// 84 → 54：自选行的涨跌色不再靠重建 3 个标签，改由各标签自己的响应式 style 重设属性
+ok(`每档新建 DOM 节点 ${s.nodes} 个（< 80；G-2 迁移前为 84，其余为图表/统计面板的正常重建）`, Number(s.nodes) < 80);
 ok(`每档渲染耗时 ${s.elapsed} ms（< 60）`, Number(s.elapsed) < 60);
 const tickBefore = Number(s.tick);
 beat(5);
 ok("心跳按倍速累积，约每 5 拍推进一档", Number(state().tick) > tickBefore, state().tick);
 eq("多档 tick 后数量输入框仍是同一 DOM 节点", inputs()[0] === qtyInput, true);
 eq("图表随行情重绘（蜡烛仍在）", allByClass("candle").length >= 20, true);
+
+console.log("\n=== 响应式属性：行情变化不重建节点 ===");
+// 自选价格组（10 行 × 3 个数字）：从前容器块读 quote 后重建 3 个标签，现在只重设 style/文字
+const priceCellsBefore = allByClass("wl-price")[0].children.slice();
+const rowCellsBefore = allByClass("wl-row")[0].children.slice();
+window.citrineTestApi.fireTick();
+const priceCellsAfter = allByClass("wl-price")[0].children;
+eq("价格组是同一批 DOM 节点", priceCellsBefore.every((c, i) => c === priceCellsAfter[i]), true);
+const priceColor = priceCellsAfter[0].style.color;
+ok(`价格组仍带涨跌色（响应式 style 已重设，color=${priceColor || "无"}）`, /rgb|#/.test(String(priceColor)), String(priceColor));
+// 文字确实跟着行情变（不是"什么都不更新"）
+ok("最新价文字随行情更新", /[0-9]/.test(String(priceCellsAfter[0].textContent)), priceCellsAfter[0].textContent);
+const rowCellsAfter = allByClass("wl-row")[0].children;
+eq("整行仍是同一批 DOM 节点", rowCellsBefore.every((c, i) => c === rowCellsAfter[i]), true);
 
 console.log("\n=== 市价买入 ===");
 type(qtyInput, "500");
@@ -135,6 +150,13 @@ s = state();
 eq("成交笔数", s.trades, "2");
 eq("剩余持仓", s.held, "300");
 ok("已实现盈亏字段有值", s.realized !== "", s.realized);
+
+// 持仓行的实时列（现价/市值/浮盈/收益率）同理：响应式 style 让每档只重设属性
+const liveBefore = allByClass("pos-live")[0].children.slice();
+window.citrineTestApi.fireTick();
+const liveAfter = allByClass("pos-live")[0].children;
+eq("持仓实时列是同一批 DOM 节点", liveBefore.every((c, i) => c === liveAfter[i]), true);
+ok("持仓浮盈文字随行情更新", /[0-9]/.test(String(liveAfter[2].textContent)), liveAfter[2].textContent);
 
 console.log("\n=== 限价挂单 / 撤单 ===");
 click(byText("button", "限价"), "限价 chip");
@@ -192,8 +214,18 @@ eq("空格继续", state().paused, "false");
 key("3");
 eq("快捷键 3 → 4x", state().speed, "4");
 const selectedBefore = state().selected;
+const rowsBeforeSwap = allByClass("wl-row");
 key("ArrowDown");
 ok(`↑↓ 换股（${selectedBefore} → ${state().selected}）`, state().selected !== selectedBefore);
+
+// 响应式 css_class：换股只重设两行的 class，行节点本身复用
+// （从前 wl-body 块读 selected，换股会重建全部 10 行及其子树）
+const rowsAfterSwap = allByClass("wl-row");
+eq("换股后自选行仍是同一批 DOM 节点", rowsBeforeSwap.length === 10 && rowsBeforeSwap.every((r, i) => r === rowsAfterSwap[i]), true);
+eq("选中态行唯一", rowsAfterSwap.filter((r) => String(r.className).split(" ").includes("is-active")).length, 1);
+const activeRow = rowsAfterSwap.find((r) => String(r.className).split(" ").includes("is-active"));
+ok(`选中态行是当前标的 ${state().selected}`, !!activeRow && texts(activeRow).includes(state().selected), activeRow ? rowText(activeRow) : "无");
+
 const fakeInput = makeEl("input");
 fakeInput.tagName = "INPUT";
 key(" ", fakeInput);

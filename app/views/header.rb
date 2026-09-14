@@ -25,6 +25,8 @@ module Market
           end
 
           # 账户总览：颜色随盈亏变化 → 外层块读，内层静态文字
+          # （kv/kpi 收的是值而不是 Proc，这里还没法收成响应式属性；
+          #   理由见 views/common.rb 顶部注释）
           box(css_class: "hd-equity", direction: :row, gap: 18) do
             equity = self.equity
             pnl = unrealized_pnl

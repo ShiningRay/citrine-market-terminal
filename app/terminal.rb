@@ -1,6 +1,11 @@
+# backtick_javascript: true
 # frozen_string_literal: true
 
 # 行情终端主组件。
+#
+# 本组件同时是**唯一的挂载根**与**心跳的所有者**：tick 快慢取决于 paused / speed
+# 两个 state，所以定时器跟着状态走（on_mount 起、on_unmount 停），不再由外挂层
+# 持 window 引用代管（从前是 app/browser_glue.rb，见 FRICTION.md 的 F7/F10）。
 #
 # 架构说明（citrine v1 的两个硬约束决定了这里的分工）：
 #   1. **无组件嵌套**：所有面板都是本组件的私有方法（views/ 下按面板拆成 module
@@ -9,9 +14,10 @@
 #      textContent（0 个元素重建）；读在容器 block 里 → 整个子树重建。
 #      本文件因此严格遵守两条纪律：
 #        - 根 view / 各面板容器块**不读任何信号**，保证结构不随 tick 抖动；
-#        - 每个会变的数字都在最内层的小块里读（价格、盈亏…），且颜色变化的
-#          单元格单独成块（因为 apply_props 只在挂载时执行，改颜色必须重建
-#          节点——缺口见 FRICTION.md 的 F4）。
+#        - 每个会变的数字都在最内层的小块里读（价格、盈亏…）；需要随值变的
+#          外观（颜色/选中态）用**响应式属性**（`css_class:` / `style:` 传 Proc）
+#          落在该节点自己的属性 Effect 上，只重设属性、不重建子树（F4 → G-2 落地）。
+require "native"
 require "citrine"
 require_relative "engine"
 require_relative "account"
@@ -46,6 +52,14 @@ module Market
     CURVE_EVERY = 3          # 权益曲线采样间隔（档）
     AUTO_TRADE_EVERY = 5     # 自动交易间隔（档）
     NOTICE_TICKS = 40        # 提示信息存活档数
+    BEAT_MS = 200            # 心跳间隔（固定的调度节拍）
+    TICK_MS = 850            # 1x 速度下一档的间隔
+
+    # 生命周期与全局键盘（F7/F10 → G-9/G-10）：心跳的起停与 window 键盘的绑定
+    # 都交给框架，卸载时自动解绑——从前这两件事由 app/browser_glue.rb 代管。
+    on_mount :start_heartbeat
+    on_unmount :stop_heartbeat
+    window_key :handle_window_key
 
     state :paused, default: false
     state :speed, default: 1
@@ -87,6 +101,9 @@ module Market
       @account = Market::Account.new(cash: INITIAL_CASH)
       @trader_rng = Market::Rng.new(SEED + 7)
       @notice_expire = 0
+      @beat_accumulated = 0   # 心跳累积毫秒（够一档才推进，见 #beat）
+      @heartbeat_handle = nil
+      @in_tick = false
       self.row_order = @engine.codes
       @account.mark!(equity_now)
     end
@@ -112,7 +129,48 @@ module Market
       end
     end
 
-    # ── tick 管线（由 browser_glue 的定时器驱动；SSR / 桩测试手动调用）────
+    # ── tick 管线（由本组件的心跳驱动；SSR / 桩测试手动调用 tick! / run_ticks）──
+
+    # 心跳的起停跟着组件生命周期（F7 → G-10）：挂载后由框架调用，卸载时自动停。
+    #
+    # 定时器状态（累积毫秒 / 重入标记）留在本组件上——它们是"这个盘口跑到哪儿了"
+    # 的一部分，只有持有 paused / speed 的对象才能正确解释（从前由外挂层代管）。
+    def start_heartbeat
+      @heartbeat_handle = Native(`window`).setInterval(-> { beat }, BEAT_MS)
+      self
+    end
+
+    def stop_heartbeat
+      Native(`window`).clearInterval(@heartbeat_handle) if @heartbeat_handle
+      @heartbeat_handle = nil
+      self
+    end
+
+    # 一次心跳：按倍速累积时间，够一档就推进（暂停时只是不累积）
+    def beat
+      return self if paused
+
+      @beat_accumulated += BEAT_MS
+      delay = Num.idiv(TICK_MS, speed) # 整数除法必须走 Num.idiv（Opal 的 / 返回浮点）
+      return self if @beat_accumulated < delay
+
+      @beat_accumulated = 0
+      fire_tick
+      self
+    end
+
+    def fire_tick
+      return self if @in_tick
+
+      @in_tick = true
+      Citrine::Telemetry.reset_round!
+      started = `Date.now()`
+      tick!
+      report_tick!(`Date.now()` - started)
+      self
+    ensure
+      @in_tick = false
+    end
 
     def tick!
       return self if paused
@@ -275,6 +333,35 @@ module Market
     # 非响应式读取：用于事件处理器（点击时才求值，不建立依赖）
     def live_quote(code = nil)
       @engine.quote(code || selected)
+    end
+
+    # ── 全局键盘（F10 → G-9）────────────────────────────────
+    #
+    # 从前这段在 app/browser_glue.rb 里自持 window 引用 + 靠 beforeunload 清理；
+    # 现在用 `window_key :handle_window_key` 声明，随卸载由框架自动解绑。
+    # 事件是平台无关的 Citrine::KeyEvent（ev.key / ev.prevent_default）；
+    # 只有"按下的目标是不是输入框"这件事没有平台无关表示，走 ev.raw 读原生事件。
+    def handle_window_key(ev)
+      target = ev.raw ? ev.raw[:target] : nil
+      tag = target ? target[:tagName].to_s.upcase : ""
+      # 输入框内的按键交给控件自身（Enter 由 text_input 的 on_enter 处理）
+      return self if tag == "INPUT"
+
+      case ev.key
+      when " "
+        ev.prevent_default
+        toggle_pause
+      when "1" then set_speed(1)
+      when "2" then set_speed(2)
+      when "3" then set_speed(4)
+      when "ArrowUp" then step_symbol(-1)
+      when "ArrowDown" then step_symbol(1)
+      when "b", "B" then set_side(:buy)
+      when "s", "S" then set_side(:sell)
+      when "Enter" then submit_order
+      when "Escape" then clear_notice
+      end
+      self
     end
 
     # ── 交互动作 ────────────────────────────────────────────

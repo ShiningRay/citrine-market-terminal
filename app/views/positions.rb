@@ -5,7 +5,8 @@ require_relative "common"
 module Market
   module Views
     # 持仓面板：明细行由 ledger 快照驱动（只在成交时重建），
-    # 实时列（现价/市值/浮盈）由叶子块读行情信号（每档只改文字或重建 4 个节点）。
+    # 实时列（现价/市值/浮盈）由叶子块读行情信号 + 响应式 style 着色
+    # （每档只改文字与属性，**0 个新建节点**）。
     module Positions
       include Common
 
@@ -62,17 +63,20 @@ module Market
           label(css_class: "num") { qty(position[:available]) }
           label(css_class: "num") { money(position[:avg_cost]) }
 
-          # 实时列：读该标的行情（颜色随盈亏变 → 重建这 4 个节点）
+          # 实时列：读该标的行情。三个数字各自的响应式 style 在本节点属性 Effect 里
+          # 求值 → 每档只重设 style/文字，**0 个新建节点**（从前是容器块读 quote 后
+          # 把 style 传给子节点，每档重建这 4 个标签）。
           box(css_class: "pos-live") do
-            quote = quote_of(code)
-            value = position[:quantity] * quote[:last]
-            pnl = position[:quantity] * (quote[:last] - position[:avg_cost])
-            pnl_pct = position[:avg_cost] > 0 ? quote[:last] / position[:avg_cost] - 1.0 : 0.0
-            style = pct_style(pnl)
-            label(css_class: "num") { money(quote[:last]) }
-            label(css_class: "num", style: style) { money(value) }
-            label(css_class: "num", style: style) { signed_money(pnl) }
-            label(css_class: "num", style: style) { pct(pnl_pct) }
+            label(css_class: "num") { money(quote_of(code)[:last]) }
+            label(css_class: "num", style: -> { position_style(code, position) }) do
+              money(position_value(code, position))
+            end
+            label(css_class: "num", style: -> { position_style(code, position) }) do
+              signed_money(position_pnl(code, position))
+            end
+            label(css_class: "num", style: -> { position_style(code, position) }) do
+              pct(position_pnl_pct(code, position))
+            end
           end
 
           box(css_class: "pos-act") do
@@ -80,6 +84,26 @@ module Market
             chip("撤挂单", false, -> { cancel_orders_for(code) })
           end
         end
+      end
+
+      # ── 实时列的派生值（读行情信号；只在叶子块 / 属性 Proc 里调用）──
+
+      def position_value(code, position)
+        position[:quantity] * quote_of(code)[:last]
+      end
+
+      def position_pnl(code, position)
+        quote = quote_of(code)
+        position[:quantity] * (quote[:last] - position[:avg_cost])
+      end
+
+      def position_pnl_pct(code, position)
+        quote = quote_of(code)
+        position[:avg_cost] > 0 ? quote[:last] / position[:avg_cost] - 1.0 : 0.0
+      end
+
+      def position_style(code, position)
+        pct_style(position_pnl(code, position))
       end
     end
   end

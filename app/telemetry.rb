@@ -1,11 +1,12 @@
 # frozen_string_literal: true
 
-# 演示用埋点：框架 v1 没有可观测性入口（信号依赖图 / Effect 重跑 / 渲染开销），
-# 这里用最小侵入的方式自己接一套计数器。浏览器侧只有 DOM 计数需要注入
-# （见 browser_glue.rb）；Effect#run 的计数是纯 Ruby，直接包装即可。
+# 演示用埋点：框架没有可观测性入口（信号依赖图 / Effect 重跑 / 渲染开销），
+# 这里用最小侵入的方式自己接一套计数器。DOM 侧的新建节点计数由
+# `test_api.rb` 的 RenderInstrumentation 注入；Effect#run 的计数是纯 Ruby，直接包装即可。
 #
-# 注意：这是踩坑记录里的"框架缺口"，不是推荐做法——理想形态是框架内置
-# `Citrine.telemetry` / DevTools 钩子（GOALS.md P1-8）。
+# 注意：这是踩坑记录里的"框架缺口"（FRICTION.md 的 F9，**仍未解决**），不是推荐做法——
+# 理想形态是框架内置 `Citrine.telemetry` / DevTools 钩子（GOALS.md P1-8）。
+# 姊妹仓库 citrine-sheets 的同款埋点也在等这个钩子：两个真实应用各 hack 了一遍。
 require "citrine"
 
 module Citrine

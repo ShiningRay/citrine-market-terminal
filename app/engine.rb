@@ -134,12 +134,12 @@ module Market
 
     # 卖一价（买入成交价）
     def ask(code)
-      Num.round2(book(code).last * (1 + SPREAD_RATE / 2))
+      Num.round_to(book(code).last * (1 + SPREAD_RATE / 2), 2)
     end
 
     # 买一价（卖出成交价）
     def bid(code)
-      Num.round2(book(code).last * (1 - SPREAD_RATE / 2))
+      Num.round_to(book(code).last * (1 - SPREAD_RATE / 2), 2)
     end
 
     # 响应式：档位计数信号
@@ -179,20 +179,20 @@ module Market
       volume = b.volume.round
       {
         code: spec.code, name: spec.name, sector: spec.sector,
-        last: Num.round2(b.last), prev_close: Num.round2(b.prev_close),
-        open: Num.round2(b.open), high: Num.round2(b.high), low: Num.round2(b.low),
-        change: Num.round2(change),
+        last: Num.round_to(b.last, 2), prev_close: Num.round_to(b.prev_close, 2),
+        open: Num.round_to(b.open, 2), high: Num.round_to(b.high, 2), low: Num.round_to(b.low, 2),
+        change: Num.round_to(change, 2),
         change_pct: b.prev_close.zero? ? 0.0 : change / b.prev_close,
         amplitude: b.prev_close.zero? ? 0.0 : (b.high - b.low) / b.prev_close,
         volume: volume,
-        amount: Num.round0(volume * b.last),
-        bid: Num.round2(b.last * (1 - SPREAD_RATE / 2)),
-        ask: Num.round2(b.last * (1 + SPREAD_RATE / 2)),
+        amount: Num.round_to(volume * b.last, 0), # 成交额取整到元（原 Num.round0）
+        bid: Num.round_to(b.last * (1 - SPREAD_RATE / 2), 2),
+        ask: Num.round_to(b.last * (1 + SPREAD_RATE / 2), 2),
         direction: b.direction,
-        limit_up: Num.round2(b.prev_close * (1 + LIMIT_PCT)),
-        limit_down: Num.round2(b.prev_close * (1 - LIMIT_PCT)),
-        limit_up_hit: b.last >= Num.round2(b.prev_close * (1 + LIMIT_PCT)) - 0.01,
-        limit_down_hit: b.last <= Num.round2(b.prev_close * (1 - LIMIT_PCT)) + 0.01,
+        limit_up: Num.round_to(b.prev_close * (1 + LIMIT_PCT), 2),
+        limit_down: Num.round_to(b.prev_close * (1 - LIMIT_PCT), 2),
+        limit_up_hit: b.last >= Num.round_to(b.prev_close * (1 + LIMIT_PCT), 2) - 0.01,
+        limit_down_hit: b.last <= Num.round_to(b.prev_close * (1 - LIMIT_PCT), 2) + 0.01,
         tick: @tick
       }
     end
@@ -246,7 +246,7 @@ module Market
         b.vol_state = b.vol_state * 0.985 + 0.015 * (1.0 + z.abs)
         ret = spec.drift + spec.vol * b.vol_state * (z + shock)
         price = clamp_limit(b.last * Math.exp(ret), b)
-        price = Num.round2(price)
+        price = Num.round_to(price, 2)
         price = b.last if price <= 0
         b.prev = b.last
         b.last = price

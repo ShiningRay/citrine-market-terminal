@@ -19,15 +19,20 @@
 |---|---|---|
 | F1 | ✅ 已修复 | `Effect#run`/`#dispose` 增加 dispose 守卫（幂等、广播快照安全），并有 CRuby 回归测试 `test_disposed_effect_in_broadcast_snapshot_is_safe` 锁定。本文建议的"`@deps = []` 不变量"实现为"`@deps = nil` + `run` 头部守卫"，语义等价 |
 | F2 | ✅ 最小修复 | `DomRenderer.mount_at` 复用已有 DomRenderer 实例（不再"最后挂载者胜出"）；`Renderer#mount` 无父节点时抛出**可读**异常（指明多根挂载的正确姿势），有测试锁定 |
+| F4 | ✅ 已落地 | **响应式属性**：`css_class:` / `placeholder:` / `style:` / `direction:` / `gap:` 的值可传 Proc，在**该节点自己的属性 Effect** 内求值，重跑只重设属性、不重建子树。"颜色随状态变必须整块重建"不再成立，本文第五节的纪律 2 已据此改写（本仓库落地情况见第七节） |
+| F7 | ✅ 已落地 | `on_mount :method` / `on_unmount { }`（类宏、子类继承）+ `ref: :name` → `component.refs[:name]`；`Citrine.unmount(component)` 公开卸载。本仓库的 200ms 心跳定时器已从外挂层迁到组件（第七节） |
+| F10 | ✅ 已落地 | 类宏 `window_key :handler`（window 级 keydown，随卸载自动解绑）+ 元素级 `on_key:` / `on_focus:` / `on_blur:`（`on_key` 支持 Symbol / Proc / `{ "Escape" => :cancel, else: :fallback }`）。处理器收到平台无关的 `Citrine::KeyEvent`（`ev.key` / `ev.shift?` / `ev.meta?` / `ev.command?` / `ev.prevent_default` / `ev.raw`）。本仓库的全局快捷键已迁入（第七节） |
 | F16 | ✅ 已修复 | 内容 block 返回非字符串 → 按 `to_s` 渲染（不再静默为空），每类型提醒一次建议插值；`nil` 仍渲染为空 |
 | F17 | ✅ 已修复 | `Style.normalize` 按属性白名单推断单位（`width`/`border_radius`/`padding` 等 Numeric → `"Npx"`；`flex`/`opacity`/`font_weight` 等保持无单位），**nil 值剔除**。官方示例里"真机失效"的 `border_radius: 20` / `width: 18` 由此生效 |
 | F19 | ✅ 已修复 | `check_box(checked: signal)` 读取信号并保持响应（Effect 订阅），不再恒为 true |
 | F20 | ✅ 已修复 | `text_input(value: "字面量")` 初值落到 DOM，与 SSR 输出一致 |
-| F12–F14 | ✅ 文档已补 | README「技术备忘」置顶：整数除法、负数取整、`::Signal` 遮蔽三条跨平台陷阱 |
-| F3/F4/F5/F6/F7 | ⏳ 路线中 | 对应 Roadmap v2 P0（批量更新 / props 重应用 / 组合三件套 / 生命周期）；本文第五节的四条"绕法纪律"在落地前仍属必要 |
-| F8/F9/F10/F11/F15/F23 | ⏳ 待办 | 见第六节优先级表；F23（box 默认方向）属行为变更，改前需公告 |
+| F12–F13 | ✅ 已落地 | 框架提供 `Citrine::Num`：`idiv`（floor 语义）、`round_to`（半值远离零，digits≤0 → Integer / >0 → Float）、`round` / `integral?` / `finite?` / `percent`，并自带语义测试。本仓库那份手写实现（原 `app/num.rb`，39 行）已删除，只留 `Num = Citrine::Num` 别名（第七节） |
+| F14 | ✅ 文档已补 | README「技术备忘」置顶：整数除法、负数取整、`::Signal` 遮蔽三条跨平台陷阱 |
+| F3/F5/F6 | ⏳ 路线中 | 批量更新 / 组件嵌套 / keyed 复用仍缺；本文第五节的绕法纪律（容器块不读信号、输入框块不读信号、快照由父块下发）在落地前仍属必要 |
+| F8/F9/F11/F15/F23 | ⏳ 待办 | 见第六节优先级表。其中 **F9（可观测性）仍未解决**：本仓库与姊妹仓库 citrine-sheets 各自 `class_eval` 包装框架内部一遍，两处埋点都还在等官方钩子（第七节 7.5）；F23（box 默认方向）属行为变更，改前需公告 |
 
 > 注：本文写作时的行号与修后源码可能有偏移；F1 一节的"建议改法"与实际落地实现的差异见上表说明。
+> 本次"把外挂层交还给框架"的迁移细节见**第七节**。
 
 ---
 
@@ -116,7 +121,7 @@ end
 在同步调用栈退出后（或 `queueMicrotask`）统一 flush；同时暴露 `Citrine.batch { ... }`
 供显式包裹。注意单测依赖同步语义，需要给测试留 `flush!` 入口。
 
-### F4. props 只在挂载时应用 → "颜色随状态变"必须整块重建
+### F4. props 只在挂载时应用 → "颜色随状态变"必须整块重建 ✅已落地（响应式属性，见第七节 7.4）
 
 **【现象】** `apply_props` 只在 `mount` 时执行一次。所以要让一个数字**变色**，
 必须让它所在的块读信号、整块重建；而如果这个块里还嵌着别的块读了同一信号 → 就是 F1 崩溃。
@@ -158,12 +163,12 @@ per-row `Signal` 手动 memo 能保住**值**，但 DOM 身份与焦点仍丢。
 （`dynamic_state` 宏），并在文档里明示这是唯一可行姿势。
 中期：`box(key: item[:id])` + 重建后恢复 `document.activeElement` 与 `selectionStart`。
 
-### F7. 没有生命周期钩子 → 定时器/事件/清理全靠用户自己写
+### F7. 没有生命周期钩子 → 定时器/事件/清理全靠用户自己写 ✅已落地（`on_mount`/`on_unmount`/`ref:`/`Citrine.unmount`，见第七节 7.2）
 
 **【现象】** 无 `on_mount` / `on_unmount` / `effect` / `watch`；`Renderer#dispose` 是 private，
 组件无法感知自己被销毁。所有外部资源（定时器、全局键盘、beforeunload）都得在框架外挂。
 
-**【证据】**【实测】本仓库 `app/browser_glue.rb` 的自述注释、`app/market.rb:21-22`。
+**【证据】**【实测】本仓库 `app/browser_glue.rb`（迁移后已删除，见第七节 7.2）的自述注释、`app/market.rb:21-22`。
 审计实测：框架内 `clearInterval` 被调用 **0** 次，销毁后定时器照跑。
 
 **【建议改法】** 按 P0-2 做**最小可用版**：`Component#on_mount(&)` / `#on_unmount(&)`
@@ -182,14 +187,14 @@ Canvas 渲染器会接管整块 canvas 元素，不能作为 DOM 树中的一个
 但值得记成**未来方向**：要么提供 `DomRenderer` 里的子渲染器插槽
 （`box(canvas: :kline) { }` 之类的逃逸口），要么明确文档写"单页单后端"。
 
-### F9. 没有 DevTools / 埋点钩子 → 得自己 hack 框架内部
+### F9. 没有 DevTools / 埋点钩子 → 得自己 hack 框架内部 ⏳**仍未解决**（迁移后埋点仍是外挂，见第七节 7.5）
 
 **【现象】** 信号依赖图、Effect 重跑次数、渲染耗时都看不到。
 本仓库想量化"块级重建的粒度"，只能：
 ① `class_eval` + `alias_method` 包裹 `Effect#run`（纯 Ruby）；
 ② 包裹 `DomRenderer#create_dom` 统计 `createElement` 次数。
 
-**【证据】**【实测】`app/telemetry.rb` + `app/browser_glue.rb:23-35`；
+**【证据】**【实测】`app/telemetry.rb` + `app/browser_glue.rb:23-35`（该段迁移后挪到 `app/test_api.rb`，**仍未解决**）；
 页面底部"信号与渲染埋点"面板实时显示 122 次重跑 / 84 个节点。
 
 **【建议改法】** 把这两个钩子变成官方能力（P1-8 DevTools 的地基）：
@@ -197,7 +202,7 @@ Canvas 渲染器会接管整块 canvas 元素，不能作为 DOM 树中的一个
 或至少提供 `Citrine::Effect.on_run` / `Renderer.on_node_create` 的可插拔回调。
 **这是"信号式框架"相对 React 的最大可观测性卖点，不该让用户自己 alias_method。**
 
-### F10. 键盘事件只有 Enter → 失焦提交 / Esc 取消做不到
+### F10. 键盘事件只有 Enter → 失焦提交 / Esc 取消做不到 ✅已落地（`window_key` / `on_key` / `Citrine::KeyEvent`，见第七节 7.3）
 
 **【现象】** 框架内只能收到 `text_input` 的 Enter；`blur` / `focus` / `Escape` / 普通键一律收不到。
 
@@ -254,7 +259,7 @@ DOM 与 StringRenderer 两端都映射（`disabled` 尤其重要：现在**没�
 
 ## 三、跨平台语义陷阱（Opal vs CRuby）：CRuby 单测全绿，浏览器里却是乱码
 
-### F12. 整数除法静默返回浮点 ★
+### F12. 整数除法静默返回浮点 ★ ✅已落地（框架提供 `Citrine::Num`，见第七节 7.1）
 
 **【现象】** `7 / 2` 在 CRuby 是 `3`，在 Opal 是 `3.5`。于是 `123456789 / 100` 变成 `1234567.89`
 ——金额格式化直接输出 `1,234,567,.89.89` 这种乱码。
@@ -264,13 +269,14 @@ DOM 与 StringRenderer 两端都映射（`disabled` 尤其重要：现在**没�
 
 **【定位/改法】** 属于 Opal 语义而非 Citrine 代码，但 Citrine 是"面向 Opal 的框架"，
 **建议在文档的"技术备忘"里置顶警告**，并考虑在 corelib 之外提供 `Citrine::Num` 之类的工具模块。
-本仓库的应对：`app/num.rb` 集中提供 `Num.idiv` / `Num.round_to`，且所有金额格式化都走它。
+本仓库当年的应对：`app/num.rb` 集中提供 `Num.idiv` / `Num.round_to`，且所有金额格式化都走它。
+现在框架已内置同一份实现（`Citrine::Num`），本仓库那份副本已删除，只留 `Num = Citrine::Num` 别名（第七节 7.1）。
 
 ### F13. 负数取整方向不同
 
 **【现象】** `(-1.5).round`：CRuby `-2`（远离零），Opal `-1`（JS `Math.round` 朝 +∞）。
 
-**【证据】**【实测】同上语义对照。**【改法】** 同上：取整先取绝对值再回贴符号（见 `app/num.rb`）。
+**【证据】**【实测】同上语义对照。**【改法】** 同上：取整先取绝对值再回贴符号。`Citrine::Num.round_to` 已是这个语义（`round_to(-1.5, 0) # => -2`）。
 
 ### F14. 组件内写裸 `Signal` 会命中 corelib 的 `::Signal`
 
@@ -325,12 +331,19 @@ DOM 与 StringRenderer 两端都映射（`disabled` 尤其重要：现在**没�
 
 ## 五、本仓库采用的"绕法纪律"（其它开发者可直接抄）
 
+> **2026-09-14 更新（框架 F4/F7/F10 落地后）**：下面第 2 条已改写——外观不再需要
+> "外层块读信号后重建"，`css_class:` / `style:` 传 Proc 即可（响应式属性，只重设属性不重建子树）。
+> 第 1、3、4 条仍然必要（F3 批量更新、F5 组件嵌套、F6 keyed 复用都还没落地）。
+> 心跳与全局键盘也不再需要外挂层（第七节）。
+
 在 v1 约束下写出不崩、不卡、不闪的应用，本仓库总结出四条纪律（`app/views/common.rb` 有注释版）：
 
 1. **容器块不读信号** —— 保证结构不随高频信号打散；会变的数字放到**最内层**小块里读
-   （读在叶子块 → 更新只改 `textContent`，**0 个元素重建**，这是 v1 性能的关键）。
-2. **需要变色/换 class 的单元，让外层块读信号并重建；内层标签绝不再读同一信号**
-   —— 前者是 props 非响应式所迫（F4），后者是为了避开 F1 崩溃。
+   （读在叶子块 → 更新只改 `textContent`，**0 个元素重建**，这是性能的关键）。
+2. **随值变的外观用响应式属性（`css_class:` / `style:` 传 Proc）** —— 订阅落在该节点自己的
+   属性 Effect 上，重跑只重设属性；没有响应式表示的场景（改的是子节点集合/结构）才退回
+   "外层块读信号并重建"。**内层标签绝不再读同一信号**——祖先与后代订阅同一信号曾触发框架
+   崩溃（F1，已修复，但这类结构仍应避免）。
 3. **输入框所在的块不读任何信号** —— 否则每档都被重建，丢焦点与输入法状态。
 4. **快照数据由父块读出后以局部变量传给子块** —— 父块重建时自然刷新，子块保持静态。
 
@@ -349,12 +362,115 @@ DOM 与 StringRenderer 两端都映射（`disabled` 尤其重要：现在**没�
 | **文档（今天就能做）** | F12、F13、F14 置顶写入 README「技术备忘」 | 跨平台语义陷阱（尤其整数除法）会让"CRuby 单测全绿"的应用在浏览器里出错 |
 
 **一句话总结**：v1 的**内核语义**（信号 + 块级重建）是成立的，本仓库能在它上面跑出
-122→125 次重跑/84→87 节点的确定性开销、以及逐字节跨平台一致的内核；
+确定性的每档开销（响应式属性落地前 122 次重跑 / 84 个新建节点；落地后 142 次重跑 / 54 个新建节点，
+见第七节；耗时两次都在 4–8ms 量级，随机器负载浮动，不作为指标）、以及逐字节跨平台一致的内核；
 真正的摩擦集中在**三个边界**——① 更新粒度与 props 静态化带来的"视图层纪律"（F3/F4）、
 ② 组合与生命周期缺失带来的"单类应用"（F5/F6/F7）、③ Opal 语义、静默失败与默认值带来的"排查成本"（F12/F16/F23）。
 这三处都不需要重写内核，属于可以逐个点掉的具体工作。
 
-> 附加一条方法论教训（给框架的验收清单）：本仓库的 60 项 Node DOM 桩断言在
+> 附加一条方法论教训（给框架的验收清单）：本仓库的 Node DOM 桩断言（60 项，迁移后 69 项）在
 > **布局已经塌成 2px** 的状态下依然全绿——因为桩里没有布局引擎（F23）。
 > 框架自身的示例验收同样只做"文本/结构断言"，因此**建议把"真实浏览器量尺寸"
 > 补进 CI**（headless Chrome 足够，不需要视觉回归），否则一类布局 bug 会长期不可见。
+
+---
+
+## 七、框架能力落地后的迁移记录（2026-09-14）
+
+框架侧 F4（响应式属性）/ F7（生命周期）/ F10（键盘）/ F12–F13（`Citrine::Num`）陆续合并后，
+本仓库做了一次"**把外挂层交还给框架**"的迁移。迁移不是把代码搬走就完事——每个新能力都
+**简化了一处本仓库的绕法**，外挂层文件 `app/browser_glue.rb`（128 行）因此缩成
+`app/test_api.rb`（只剩桩验收钩子与仍无框架形态的渲染埋点）。
+
+### 7.1 F12–F13：`Citrine::Num` 取代应用内副本
+
+`app/num.rb` 从 39 行的 `idiv` / `round_to` / `round0/1/2` 实现，变成 13 行的
+`Num = Citrine::Num` 别名。调用点按名字差异改：`Num.round2(x)` → `Num.round_to(x, 2)`、
+`Num.round0(x)` → `Num.round_to(x, 0)`（5 个文件共 51 处：account 21 / engine 16 / chart 10 / stats 3 / parity 1）。
+
+**迁移中要注意的一点**：`round_to` 的返回类型随 `digits` 变（≤0 → Integer，>0 → Float），
+所以**不能靠"把 round0/1/2 统一按 round_to(x, 2) 批量替换"**——本次迁移的第一版替换脚本
+就把 `Engine#quote` 的 `amount`（成交额，原 `round0`）错写成 2 位小数，靠逐处核对（`rake parity` + 单测）才捞回来。
+`rake parity` 的 51 行输出在替换前后逐字节一致（含 `round_neg=-1.000000` 这条负数半值用例）。
+
+### 7.2 F7：心跳定时器交给组件生命周期
+
+`setInterval` 心跳（200ms 一拍、按倍速累积）从外挂层搬进 `Terminal`——它是唯一持有
+`paused` / `speed` 的对象，累积毫秒与重入标记只有它能正确解释：
+
+```ruby
+class Terminal < Citrine::Component
+  on_mount :start_heartbeat
+  on_unmount :stop_heartbeat
+  window_key :handle_window_key
+end
+```
+
+- `start_heartbeat` / `stop_heartbeat` 走 `Native(\`window\`).setInterval / clearInterval`（`app/terminal.rb`）
+- `app/market.rb` 里那句"框架无 on_unmount，只能自己挂 beforeunload"随之删除
+- 入口不再持有定时器，也就不需要"谁来清"的问题：`Citrine.unmount(terminal)` 会跑完 on_unmount
+
+### 7.3 F10：全局键盘从外挂层回到组件声明
+
+window 级 keydown 从 `window.addEventListener` + 自持引用，改成 `window_key :handle_window_key`，
+处理器改用框架归一化的 `Citrine::KeyEvent`（`ev.key` / `ev.prevent_default`）。卸载时监听
+由框架解绑，不再有"框架不知道的监听器"。
+
+**一处没有平台无关表示、因此仍读原生事件的地方**：快捷键要避让输入框
+（在数量框里打 `b` 不该切买入、打空格不该暂停）。这个判断只能写成
+`ev.raw[:target]` 取 `tagName` 再比对 `"INPUT"`：
+
+```ruby
+target = ev.raw ? ev.raw[:target] : nil
+tag = target ? target[:tagName].to_s.upcase : ""
+return self if tag == "INPUT"
+```
+
+姊妹仓库 citrine-sheets 在迁移时**删掉**了同类判断——那边把键交给输入框自己的
+`on_key:` 处理，而这里 `Enter` 的语义是"输入框外提交委托"，输入框内按键本就不该触发，
+所以这段判断保留（桩验收里有专门的"输入框内空格不触发暂停"断言锁定它）。
+
+### 7.4 F4：响应式属性让"外观更新"不再重建子树
+
+两处容器块原本只为"把读信号的 props 关进一个块"而读行情，现在改成叶子自己的响应式属性：
+
+```ruby
+# 自选行：选中态是行自己的 css_class（从前由父块读 selected 后传入）
+box(css_class: -> { selected == code ? "wl-row is-active" : "wl-row" }, on_click: ...)
+
+# 涨跌色：每个数字自己的 style（从前容器块读 quote 后把 style 传给三个标签）
+box(css_class: "wl-price") do
+  label(css_class: "wl-c-last num", style: -> { quote_style(code) }) { money(quote_of(code)[:last]) }
+  ...
+end
+```
+
+**实测（Node 桩，同 seed 同档位）**：
+
+| 指标 | 迁移前 | 迁移后 |
+|---|---|---|
+| 每档新建 DOM 节点 | 84 | **54**（少掉的 30 = 10 行 × 3 个价格标签不再重建） |
+| 每档渲染耗时 | 6ms | 4–5ms（该项受机器负载影响，只作参考） |
+| 每档 Effect 重跑 | 122 | 142（每个响应式属性多一个 Effect；重跑变多、建节点变少是这次交换的本意） |
+| 换股（↑↓） | 重建全部 10 行及其子树 | **行节点全部复用**，只重设两行 class |
+
+- 桩断言从"每档新建节点 < 250"**收紧到 < 80**（迁移前 84，会失败；迁移后 54）
+- 新增 9 项断言锁定 DOM 身份：价格组/整行/持仓实时列在行情更新后**仍是同一批节点对象**、
+  换股后 10 行仍是同一批对象且选中态唯一、且文字确实随行情更新（避免"什么都不更新"也算过）
+- 桩断言总数 60 → 69，全绿；`rake test` 29 项 / 238 断言不变
+- 本节数字全部来自 `rake stubs`（Node DOM 桩，同一份 Opal 编译产物）；本次迁移**没做真机浏览器实测**（本环境无法起服务给浏览器用），改动涉及 class/style 的重设而非结构变化，仍建议复核时在 Chrome 里点几下自选行
+
+### 7.5 没有改的地方（以及为什么）
+
+- **F9 仍未解决**：`class_eval` 包装 `DomRenderer#create_dom` 的渲染计数仍是外挂层
+  (`app/test_api.rb` 的 `RenderInstrumentation`)。框架还没有 telemetry 钩子，而这个 demo
+  的卖点之一就是"把每档开销显示在界面上"，所以它留在应用侧，并在文件顶部注明"这是缺口不是推荐姿势"。
+  姊妹仓库有一份同款埋点——**两个真实应用各 hack 了一遍，这条摩擦的优先级应该往上提**。
+- **`kv` / `kpi` / `metric` 这些构件没改成 Proc**：它们收的是**值**，值由调用方在块里求值，
+  于是订阅仍在调用方块上（头部总览、账户统计、图表快照与指标、埋点面板每档都整块重建）。
+  要它们也做到"只改文字不重建"，得把 `value_text` 也改成 Proc——
+  这是一次跨 6 个面板的 API 改造，**本次刻意没做**（迁移的原则是"不为了用而用"），
+  留作下一轮的候选。
+- **无纯隔离容器可删**：本仓库没有"只为了关订阅、自己没有布局职责"的容器
+  （`wl-price` / `pos-live` / `panel-tools` 都有布局或结构职责），所以这次的收益是
+  "容器块不再读信号"，而不是姊妹仓库那种"三层并两层"的结构简化。

@@ -140,12 +140,12 @@ module Market
     end
 
     def estimate(side, quantity, price)
-      gross = Num.round2(quantity * price)
+      gross = Num.round_to(quantity * price, 2)
       fee = commission(gross)
-      tax = side == :sell ? Num.round2(gross * STAMP_TAX_RATE) : 0.0
+      tax = side == :sell ? Num.round_to(gross * STAMP_TAX_RATE, 2) : 0.0
       {
         gross: gross, fee: fee, tax: tax,
-        total: side == :buy ? Num.round2(gross + fee) : Num.round2(gross - fee - tax)
+        total: side == :buy ? Num.round_to(gross + fee, 2) : Num.round_to(gross - fee - tax, 2)
       }
     end
 
@@ -176,10 +176,10 @@ module Market
       error = validate_limit(limit, band)
       return failure(error) if error
 
-      limit = Num.round2(limit)
-      frozen = side == :buy ? Num.round2(limit * quantity * (1 + COMMISSION_RATE)) : 0.0
+      limit = Num.round_to(limit, 2)
+      frozen = side == :buy ? Num.round_to(limit * quantity * (1 + COMMISSION_RATE), 2) : 0.0
       if side == :buy && frozen > available_cash
-        return failure("可用资金不足：需冻结 #{Num.round2(frozen)}，可用 #{Num.round2(available_cash)}")
+        return failure("可用资金不足：需冻结 #{Num.round_to(frozen, 2)}，可用 #{Num.round_to(available_cash, 2)}")
       end
       if side == :sell && quantity > available(code, tick)
         return failure(sell_error(code, quantity, tick))
@@ -226,7 +226,7 @@ module Market
 
         exec_price = order.side == :buy ? [order.limit, price].min : [order.limit, price].max
         result = execute(code: order.code, side: order.side, quantity: order.quantity,
-                         price: Num.round2(exec_price), tick: tick, kind: :limit,
+                         price: Num.round_to(exec_price, 2), tick: tick, kind: :limit,
                          unfreeze: order.frozen)
         @orders.delete(order)
         changed = true
@@ -242,7 +242,7 @@ module Market
 
     # 追加权益曲线采样点
     def mark!(equity)
-      @curve << Num.round2(equity)
+      @curve << Num.round_to(equity, 2)
       @curve.shift if @curve.size > CURVE_LIMIT
       @curve_signal.set(@curve.dup)
       self
@@ -288,11 +288,11 @@ module Market
 
       est = estimate(:sell, quantity, price)
       cost_part = consume_lots(code, quantity, tick)
-      realized = Num.round2(est[:total] - cost_part)
+      realized = Num.round_to(est[:total] - cost_part, 2)
       @cash += est[:total]
       @fees += est[:fee] + est[:tax]
       @realized += realized
-      @realized_by_code[code] = Num.round2((@realized_by_code[code] || 0.0) + realized)
+      @realized_by_code[code] = Num.round_to((@realized_by_code[code] || 0.0) + realized, 2)
       @closed += 1
       @wins += 1 if realized > 0
       trade = Trade.new(next_trade_id, code, :sell, quantity, price, est[:fee], est[:tax], realized, tick)
@@ -322,13 +322,13 @@ module Market
         end
       end
       @lots[code] = kept
-      Num.round2(cost)
+      Num.round_to(cost, 2)
     end
 
     def commission(gross)
       value = gross * COMMISSION_RATE
       value = MIN_COMMISSION if value < MIN_COMMISSION
-      Num.round2(value)
+      Num.round_to(value, 2)
     end
 
     def validate_quantity(quantity)
@@ -380,17 +380,17 @@ module Market
 
         positions[code] = {
           code: code, quantity: quantity, available: usable,
-          cost: Num.round2(cost), avg_cost: Num.round2(cost / quantity),
+          cost: Num.round_to(cost, 2), avg_cost: Num.round_to(cost / quantity, 2),
           realized: @realized_by_code[code] || 0.0
         }
       end
       {
-        cash: Num.round2(@cash),
-        frozen: Num.round2(@frozen),
-        available_cash: Num.round2(@cash - @frozen),
+        cash: Num.round_to(@cash, 2),
+        frozen: Num.round_to(@frozen, 2),
+        available_cash: Num.round_to(@cash - @frozen, 2),
         positions: positions,
-        realized: Num.round2(@realized),
-        fees: Num.round2(@fees),
+        realized: Num.round_to(@realized, 2),
+        fees: Num.round_to(@fees, 2),
         closed: @closed,
         wins: @wins
       }

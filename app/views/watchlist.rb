@@ -25,18 +25,17 @@ module Market
             label(css_class: "wl-c-vol num") { "成交量" }
           end
 
-          # 行集合：只在排序 / 选中变化时重建（不是每 tick）
+          # 行集合：只在排序变化时重建。
+          # 换股（selected 变）不再重建行——选中态是行自己的响应式 css_class（见下）。
           box(css_class: "wl-body", direction: :column) do
-            active = selected
-            order = row_order
-            order.each { |code| render_watch_row(code, active) }
+            row_order.each { |code| render_watch_row(code) }
           end
         end
       end
 
-      # 单行：row 块本身不读信号（全选态由父块传入，行情由叶子块各自读）
-      def render_watch_row(code, active)
-        box(css_class: active == code ? "wl-row is-active" : "wl-row",
+      # 单行：行块本身不读信号（选中态是响应式属性，行情由叶子块各自读）
+      def render_watch_row(code)
+        box(css_class: -> { selected == code ? "wl-row is-active" : "wl-row" },
             on_click: -> { select_symbol(code) }) do
           box(css_class: "wl-name", direction: :column) do
             label(css_class: "wl-code") { code }
@@ -44,19 +43,24 @@ module Market
             render_hold_badge(code)
           end
 
-          # 价格组：颜色随涨跌变化 → 外层块读 quote，内层标签静态
+          # 价格组：颜色随涨跌变化。容器块不读信号，三个数字各自的响应式 style
+          # 在本节点的属性 Effect 里求值 → 每档只重设 style/文字，**0 个新建节点**
+          # （从前是容器块读 quote 后把 style 传给子节点，每档重建 3 个标签）。
           box(css_class: "wl-price") do
-            quote = quote_of(code)
-            style = pct_style(quote[:change])
-            label(css_class: "wl-c-last num", style: style) { money(quote[:last]) }
-            label(css_class: "wl-c-chg num", style: style) { signed_money(quote[:change]) }
-            label(css_class: "wl-c-pct num", style: style) { pct(quote[:change_pct]) }
+            label(css_class: "wl-c-last num", style: -> { quote_style(code) }) { money(quote_of(code)[:last]) }
+            label(css_class: "wl-c-chg num", style: -> { quote_style(code) }) { signed_money(quote_of(code)[:change]) }
+            label(css_class: "wl-c-pct num", style: -> { quote_style(code) }) { pct(quote_of(code)[:change_pct]) }
           end
 
           # 成交量/成交额：无色变化 → 叶子块读，只改文字（0 元素重建）
           label(css_class: "wl-c-vol num") { volume(quote_of(code)[:volume]) }
           label(css_class: "wl-c-amt num") { amount(quote_of(code)[:amount]) }
         end
+      end
+
+      # 响应式属性用：涨跌色（在本节点的属性 Effect 内求值）
+      def quote_style(code)
+        pct_style(quote_of(code)[:change])
       end
 
       # 持仓标记：读 ledger（仅交易时变化）

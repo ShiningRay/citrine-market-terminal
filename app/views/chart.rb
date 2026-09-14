@@ -83,7 +83,7 @@ module Market
                 color = up ? Format::UP_COLOR : Format::DOWN_COLOR
                 if mode == :candle
                   box(css_class: "wick", style: {
-                        left: "#{Num.round2(left + slot * 0.48)}%",
+                        left: "#{Num.round_to(left + slot * 0.48, 2)}%",
                         width: "1px",
                         bottom: chart_pct(bar[:low], lo, range).to_s,
                         height: chart_pct(bar[:high] - bar[:low], 0.0, range).to_s,
@@ -92,16 +92,16 @@ module Market
                   body_lo = bar[:open] < bar[:close] ? bar[:open] : bar[:close]
                   body_hi = bar[:open] < bar[:close] ? bar[:close] : bar[:open]
                   box(css_class: "candle", style: {
-                        left: "#{Num.round2(left + slot * 0.18)}%",
-                        width: "#{Num.round2(slot * 0.64)}%",
+                        left: "#{Num.round_to(left + slot * 0.18, 2)}%",
+                        width: "#{Num.round_to(slot * 0.64, 2)}%",
                         bottom: chart_pct(body_lo, lo, range).to_s,
                         height: chart_pct(body_hi - body_lo, 0.0, range).to_s,
                         background: color
                       }) {}
                 else
                   box(css_class: "minute-bar", style: {
-                        left: "#{Num.round2(left + slot * 0.25)}%",
-                        width: "#{Num.round2(slot * 0.5)}%",
+                        left: "#{Num.round_to(left + slot * 0.25, 2)}%",
+                        width: "#{Num.round_to(slot * 0.5, 2)}%",
                         bottom: chart_pct(bar[:close], lo, range).to_s,
                         height: chart_pct(bar[:close] - lo, 0.0, range).to_s,
                         background: color
@@ -116,7 +116,7 @@ module Market
                   next if bar[:sma20].nil?
 
                   box(css_class: "sma-dot", style: {
-                        left: "#{Num.round2(i * slot + slot * 0.5 - 0.4)}%",
+                        left: "#{Num.round_to(i * slot + slot * 0.5 - 0.4, 2)}%",
                         bottom: chart_pct(bar[:sma20], lo, range).to_s,
                         width: "4px", height: "4px"
                       }) {}
@@ -134,9 +134,9 @@ module Market
 
                 height = max_volume.zero? ? 0.0 : (bar[:volume] / max_volume) * 100.0
                 box(css_class: "vol-bar", style: {
-                      left: "#{Num.round2(i * slot + slot * 0.18)}%",
-                      width: "#{Num.round2(slot * 0.64)}%",
-                      height: "#{Num.round2(height)}%",
+                      left: "#{Num.round_to(i * slot + slot * 0.18, 2)}%",
+                      width: "#{Num.round_to(slot * 0.64, 2)}%",
+                      height: "#{Num.round_to(height, 2)}%",
                       background: bar[:close] >= bar[:open] ? Format::UP_COLOR : Format::DOWN_COLOR
                     }) {}
               end
@@ -195,7 +195,7 @@ module Market
         ratio = range <= 0 ? 0.0 : (value - lo) / range * 100.0
         ratio = 0.0 if ratio < 0
         ratio = 100.0 if ratio > 100
-        "#{Num.round2(ratio)}%"
+        "#{Num.round_to(ratio, 2)}%"
       end
     end
   end

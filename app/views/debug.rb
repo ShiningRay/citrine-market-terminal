@@ -5,7 +5,8 @@ require_relative "common"
 module Market
   module Views
     # 底部埋点条：展示"一个 tick 触发多少重算、重建多少 DOM 节点、耗时多少"。
-    # v1 没有官方 DevTools，数据靠 demo 自建埋点（telemetry.rb + browser_glue.rb）。
+    # 框架没有官方 DevTools（FRICTION.md 的 F9 仍未解决），数据靠 demo 自建埋点
+    # （telemetry.rb + test_api.rb 的 RenderInstrumentation）。
     module DebugBar
       include Common
 
