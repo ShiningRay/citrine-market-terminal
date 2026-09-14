@@ -11,9 +11,29 @@
 
 ---
 
+## 零、框架侧响应状态（2026-09-14 更新，Citrine 0.1.1）
+
+针对本记录，框架已落地的修复（citrien 仓库，分支保护流程合入）：
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| F1 | ✅ 已修复 | `Effect#run`/`#dispose` 增加 dispose 守卫（幂等、广播快照安全），并有 CRuby 回归测试 `test_disposed_effect_in_broadcast_snapshot_is_safe` 锁定。本文建议的"`@deps = []` 不变量"实现为"`@deps = nil` + `run` 头部守卫"，语义等价 |
+| F2 | ✅ 最小修复 | `DomRenderer.mount_at` 复用已有 DomRenderer 实例（不再"最后挂载者胜出"）；`Renderer#mount` 无父节点时抛出**可读**异常（指明多根挂载的正确姿势），有测试锁定 |
+| F16 | ✅ 已修复 | 内容 block 返回非字符串 → 按 `to_s` 渲染（不再静默为空），每类型提醒一次建议插值；`nil` 仍渲染为空 |
+| F17 | ✅ 已修复 | `Style.normalize` 按属性白名单推断单位（`width`/`border_radius`/`padding` 等 Numeric → `"Npx"`；`flex`/`opacity`/`font_weight` 等保持无单位），**nil 值剔除**。官方示例里"真机失效"的 `border_radius: 20` / `width: 18` 由此生效 |
+| F19 | ✅ 已修复 | `check_box(checked: signal)` 读取信号并保持响应（Effect 订阅），不再恒为 true |
+| F20 | ✅ 已修复 | `text_input(value: "字面量")` 初值落到 DOM，与 SSR 输出一致 |
+| F12–F14 | ✅ 文档已补 | README「技术备忘」置顶：整数除法、负数取整、`::Signal` 遮蔽三条跨平台陷阱 |
+| F3/F4/F5/F6/F7 | ⏳ 路线中 | 对应 Roadmap v2 P0（批量更新 / props 重应用 / 组合三件套 / 生命周期）；本文第五节的四条"绕法纪律"在落地前仍属必要 |
+| F8/F9/F10/F11/F15/F23 | ⏳ 待办 | 见第六节优先级表；F23（box 默认方向）属行为变更，改前需公告 |
+
+> 注：本文写作时的行号与修后源码可能有偏移；F1 一节的"建议改法"与实际落地实现的差异见上表说明。
+
+---
+
 ## 一、阻塞级：会导致崩溃或静默错误
 
-### F1. 祖先块与后代订阅同一信号 → 首次交互即抛异常，子树被拆一半 ★最痛
+### F1. 祖先块与后代订阅同一信号 → 首次交互即抛异常，子树被拆一半 ★最痛 ✅已修复
 
 **【现象】** 这是最自然不过的写法就踩中的框架崩溃：
 
@@ -59,7 +79,7 @@ end
 更彻底的做法是给 `Signal#set` 加"通知进行中"状态，禁止在通知过程中 dispose 订阅者
 （或把 dispose 延后到本轮结束），并在 `dispose` 后把自己从 `@subs` 里摘除。
 
-### F2. 同一页面调用两次 `DomRenderer.mount_at` → 先挂载的组件被清空
+### F2. 同一页面调用两次 `DomRenderer.mount_at` → 先挂载的组件被清空 ✅已修复（最小方案）
 
 **【现象】** 页面上挂两个独立组件（各自 `mount_at` 一个容器），点第一个组件的按钮：
 `NoMethodError: undefined method 'children' for nil`，**该组件整个子树被清空**（彻底死掉）；
