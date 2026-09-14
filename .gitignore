@@ -1,0 +1,10 @@
+# 编译产物（开发时由 dev server 现场编译，不进版本库）
+/app/market.js
+/app/*.js.map
+
+# gem / 打包产物
+*.gem
+/build/
+
+# 系统
+.DS_Store
