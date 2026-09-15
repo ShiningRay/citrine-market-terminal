@@ -7,8 +7,9 @@
 #
 # 与 bin/dev 的差别：
 #   · 不需要 Opal / Node——直接在本机 CRuby 上跑（libui 经 citrine-native 的 Fiddle 绑定加载）
-#   · 路径约定一致：CITRINE_ROOT 指 citrine 仓库；citrine-native 默认取其同级目录，
-#     可用 CITRINE_NATIVE_ROOT 覆盖
+#   · 路径约定一致：CITRINE_ROOT 指 citrine 仓库；citrine-native（核心包）默认
+#     取其同级目录（CITRINE_NATIVE_ROOT 覆盖）；libui 后端仓库 citrine-native-libui
+#     同理（CITRINE_NATIVE_LIBUI_ROOT 覆盖）
 #
 # 起来之前先确认两条（否则窗口不会出现）：
 #   1. Ruby 是装了 libui 的那个（本机是 asdf 的 3.4.8：`export PATH="$HOME/.asdf/shims:$PATH"`）
@@ -16,8 +17,10 @@
 root = File.expand_path("..", __dir__)
 citrine_root = ENV["CITRINE_ROOT"] || File.expand_path("../citrine", root)
 native_root = ENV["CITRINE_NATIVE_ROOT"] || File.expand_path("../citrine-native", root)
+libui_root = ENV["CITRINE_NATIVE_LIBUI_ROOT"] || File.expand_path("../citrine-native-libui", root)
 
-missing = { "citrine" => citrine_root, "citrine-native" => native_root }
+missing = { "citrine" => citrine_root, "citrine-native" => native_root,
+            "citrine-native-libui" => libui_root }
           .reject { |_name, dir| File.directory?(File.join(dir, "lib")) }
 unless missing.empty?
   abort <<~MSG
@@ -25,10 +28,12 @@ unless missing.empty?
     请把 citrine / citrine-native 与本仓库放在同一父目录下，或设置：
       export CITRINE_ROOT=/path/to/citrine
       export CITRINE_NATIVE_ROOT=/path/to/citrine-native
+      export CITRINE_NATIVE_LIBUI_ROOT=/path/to/citrine-native-libui
   MSG
 end
 
-$LOAD_PATH.unshift(File.join(root, "app"), File.join(citrine_root, "lib"), File.join(native_root, "lib"))
+$LOAD_PATH.unshift(File.join(root, "app"), File.join(citrine_root, "lib"),
+                   File.join(native_root, "lib"), File.join(libui_root, "lib"))
 
 require "citrine-native-libui"
 require_relative "../native/app"

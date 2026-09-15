@@ -15,7 +15,9 @@
 root = File.expand_path("../..", __dir__)
 citrine_root = ENV["CITRINE_ROOT"] || File.expand_path("../citrine", root)
 native_root = ENV["CITRINE_NATIVE_ROOT"] || File.expand_path("../citrine-native", root)
-$LOAD_PATH.unshift(File.join(root, "app"), File.join(citrine_root, "lib"), File.join(native_root, "lib"))
+libui_root = ENV["CITRINE_NATIVE_LIBUI_ROOT"] || File.expand_path("../citrine-native-libui", root)
+$LOAD_PATH.unshift(File.join(root, "app"), File.join(citrine_root, "lib"),
+                   File.join(native_root, "lib"), File.join(libui_root, "lib"))
 
 require "minitest/autorun"
 require_relative "../app"
