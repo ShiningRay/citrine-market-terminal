@@ -23,7 +23,7 @@ rescue LoadError
 end
 
 require "citrine"
-require "citrine-native-libui"
+require "citrine-native-libui" # 登记 :libui 后端并设为默认（bin/native 可按环境换 GTK）
 require "terminal"
 require "telemetry"
 require_relative "views/header"

@@ -18,6 +18,8 @@ root = File.expand_path("..", __dir__)
 citrine_root = ENV["CITRINE_ROOT"] || File.expand_path("../citrine", root)
 native_root = ENV["CITRINE_NATIVE_ROOT"] || File.expand_path("../citrine-native", root)
 libui_root = ENV["CITRINE_NATIVE_LIBUI_ROOT"] || File.expand_path("../citrine-native-libui", root)
+backend = ENV.fetch("CITRINE_BACKEND", "libui")
+gtk_root = ENV["CITRINE_NATIVE_GTK_ROOT"] || File.expand_path("../citrine-native-gtk", root)
 
 missing = { "citrine" => citrine_root, "citrine-native" => native_root,
             "citrine-native-libui" => libui_root }
@@ -35,7 +37,16 @@ end
 $LOAD_PATH.unshift(File.join(root, "app"), File.join(citrine_root, "lib"),
                    File.join(native_root, "lib"), File.join(libui_root, "lib"))
 
-require "citrine-native-libui"
+# 后端装配：默认 libui（-libui 包会登记 :libui 并设为默认）；
+# CITRINE_BACKEND=gtk 时改装配 GTK3 后端（Widgets::Gtk）
+widgets = nil
+if backend == "gtk"
+  $LOAD_PATH.unshift(File.join(gtk_root, "lib"))
+  require "citrine-native-gtk"
+  widgets = Citrine::Native::Widgets::Gtk.new
+else
+  require "citrine-native-libui"
+end
 require_relative "../native/app"
 
 # 退出路径：**先退出主循环，再拆解**（MARKET-1d）。
@@ -54,7 +65,7 @@ require_relative "../native/app"
 #     就是那个安全点，所以 Ctrl+C 之后最多 200ms 就走出主循环；
 #   · SIGKILL 不可捕获，进程直接消失（不走析构，也不会踩析构）——这已是唯一一条
 #     "绕过拆解"的路径，实测 3/3 干净（见 native/README.md 的退出路径一节）。
-app = Citrine::Native.start(Market::Native::Terminal, **Market::Native::Terminal::WINDOW)
+app = Citrine::Native.start(Market::Native::Terminal, widgets: widgets, **Market::Native::Terminal::WINDOW)
 app.trap_quit!
 app.widgets.main_loop
 app.teardown
