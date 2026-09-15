@@ -49,7 +49,11 @@ require_relative "../native/app"
 #   · SIGKILL 不可捕获，进程直接消失（不走析构，也不会踩析构）——这已是唯一一条
 #     "绕过拆解"的路径，实测 3/3 干净（见 native/README.md 的退出路径一节）。
 app = Citrine::Native.start(Market::Native::Terminal, **Market::Native::Terminal::WINDOW)
+# Windows 的 Ruby 不认识 HUP/QUIT/ALRM（trap 直接 ArgumentError），按平台实际
+# 支持的信号注册：macOS 五个全有效，Windows 上只剩 INT/TERM（Ctrl+C / taskkill）
 %w[INT TERM HUP QUIT ALRM].each do |signal|
+  next unless Signal.list.key?(signal)
+
   trap(signal) { app.quit }
 end
 app.widgets.main_loop

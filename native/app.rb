@@ -74,7 +74,12 @@ module Market
       #   · 数据密集区（自选表 / 走势图 / 统计与权益曲线 / 成交挂单）→ 自绘面板（area）
       # 树里**不读任何信号**（会变的值仍以取值 Proc 下发），因此本块永不重跑。
       def view
-        box(direction: :column, gap: 10) do
+        # 根元素**必须自己声明 flex_grow: 1**（与 sheets 的 NativeApp#view 同一条 F11 判据）：
+        # macOS 对窗口直系子元素宽容（不声明也把剩余空间分给 stretchy 孙辈），**Windows 的
+        # libui box 是严格的**——根 box 不是 stretchy 时里面的 stretchy 子控件只按自然尺寸
+        # 布局（2026-09-15 Windows 实测：三列的 area 全部塌成 0 高、Draw 一次都不触发）。
+        # 声明它对 macOS 无行为差异（窗口直系子元素本来就吃满 client 区）。
+        box(direction: :column, gap: 10, style: { flex_grow: 1 }) do
           render(Views::Header,
                  tick: -> { tick_value },
                  equity: -> { equity },
@@ -92,7 +97,10 @@ module Market
           # 的内容天然宽度无关），所以三列在这个窗口下各约 (窗口宽 - 留白 - 2*间距) / 3。
           # 早先不给 flex_grow 时宽度由列里原生控件的天然宽度决定（实测左 207 / 中 786 /
           # 右 395），左列的自选表 6 列只看得见 2 列 —— 见 native/views/common.rb 顶部。
-          box(direction: :row, gap: 10) do
+          # 三列所在的 row 同样**必须 stretchy**：Windows 的严格 stretchy 链要求
+          # "参与拉伸的 box 自己在父容器里有 stretchy 尺寸，逐层成立"（F11；macOS 宽容、
+          # Windows 不容断链——row 不声明则三列全部回到自然高度，area 塌成 0）。
+          box(direction: :row, gap: 10, style: { flex_grow: 1 }) do
             box(direction: :column, gap: 8, style: { flex_grow: 1 }) do
               @panels[:watchlist] = render(Views::Watchlist,
                                            codes: -> { row_order },

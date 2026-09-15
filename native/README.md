@@ -125,6 +125,24 @@ libui 的 box 只有两件事可声明：`gap`（有没有间距）与 **stretch
 > 于是"应用的下限压得住框架的下限"只在空账户成立）；现在持仓再多也只有 ~1084×696，
 > 声明的 1160×790 在数据状态下**真的**压得住了。
 
+### Windows 平台（2026-09-15 实测，Ruby 4.0.6 x64-mingw-ucrt + libui 0.2.4）
+
+- **原生控件更高**（label 17px / button 25px；0 持仓基线 290 vs macOS 实测 340），
+  上面的面板尺寸表是 macOS 数字，Windows 实测（持 6 只、默认 1440×860）：
+  自选 235 / 统计 269 / **走势 217** / 成交挂单 139。
+- **走势图文字并入自绘面板**：三段行情文字（quote_head / quote_stats / tech_stats）原先
+  是原生 label，合计 ~119px 自然高度，Windows 上把走势图压到 71px（画不出蜡烛）；
+  现改为 `Painter.text` 画在面板顶部/底部带（`chart.rb` 的 HEAD_BAND / STATS_BAND），
+  "原生 label 不换行会顶高中列最小宽度"的拆行约束随之消失，两个平台同时受益。
+  本机（Windows）冒烟已过；macOS 侧同一份代码待下次在 macOS 上复跑冒烟确认。
+- **stretchy 链在 Windows 是严格的**：根元素与每层"参与拉伸的 box"都必须自己声明
+  `flex_grow: 1`（macOS 对窗口直系子元素宽容，Windows 断一处、里面的 area 就塌成 0×0
+  且 Draw 一次都不触发）。本轮补了根 box 与三列所在 row 的声明。
+- 最小尺寸下限（`WindowSize`）在 Windows 不可用（macOS 专属的 `setContentMinSize:`），
+  `enforce` 如实返回 `false`，只剩 libui 的内容自然尺寸兜底——与上文口径一致。
+- 退出路径的信号注册按 `Signal.list` 过滤：Windows 没有 HUP/QUIT/ALRM（trap 直接
+  ArgumentError），只剩 INT/TERM。
+
 ## 操作
 
 | 操作 | 方式 |

@@ -21,12 +21,15 @@ module Market
 
         PAD_L = 6                      # 左侧留白
         AXIS_W = 62                    # 右侧价格轴标签区（面板窄时按比例缩）
-        PLOT_TOP = 10
+        HEAD_BAND = 38                 # 顶部报价文字带（quote_head 两行画在这里）
+        STATS_BAND = 88                # 底部行情/指标文字带（quote_stats 3 行 + tech_stats 2 行）
+        PLOT_TOP = HEAD_BAND + 4       # 主图上沿（顶部文字带之下）
         VOL_GAP = 18                   # 主图与成交量带之间
         VOL_H = 44                     # 成交量带的目标高度
         VOL_MIN_H = 16
-        BOTTOM = 8                     # 成交量带下方的留白
+        BOTTOM = 8                     # 成交量带下方（底部文字带之上）的留白
         MIN_PLOT_H = 24                # 主图再矮就不画了
+        TEXT_LINE = 15                 # size 12 文字的行距（顶部/底部带按它排）
 
         # 面板尺寸 → 各图元的带位（绘制与"柱高/视口"断言都从这里取）
         Geometry = Struct.new(:width, :height, :axis_w, :plot_right, :plot_top, :plot_bottom,
@@ -36,6 +39,10 @@ module Market
         end
 
         def view
+          # 三段行情文字（quote_head / quote_stats / tech_stats）**画在 area 里**而不是
+          # 原生 label：它们合计 ~119px 的自然高度会把走势图挤扁（Windows 上原生控件
+          # 更高，2026-09-15 实测持 3 只时走势图只剩 71px、画不出蜡烛）。Painter.text
+          # 自带面板裁剪，"原生 label 不换行会顶高中列最小宽度"的拆行约束也随之消失。
           panel_frame("行情走势") do
             box(direction: :row, gap: 6) do
               state_button(-> { self.mode = :candle }) { mode == :candle ? "蜡烛 ✓" : "蜡烛" }
@@ -44,12 +51,9 @@ module Market
               state_button(-> { self.bucket = 3 }) { bucket == 3 ? "中 ✓" : "中" }
               state_button(-> { self.bucket = 8 }) { bucket == 8 ? "粗 ✓" : "粗" }
             end
-            label { quote_head }
             paint_panel(:chart,
                         watch: -> { draw_dependencies },
                         on_draw: ->(painter) { draw(painter) })
-            label { quote_stats }
-            label { tech_stats }
           end
         end
 
@@ -60,10 +64,11 @@ module Market
 
         def draw(painter)
           painter.rect(0, 0, painter.width, painter.height, fill: Theme::PANEL, stroke: Theme::LINE)
+          draw_quote_text(painter)
           series = series_for.call(selected.call)
           if series.empty?
             @geometry = nil
-            cell_text(painter, "等待行情数据…", x: 12, y: 12, w: [painter.width - 24, 200].min, h: 20,
+            cell_text(painter, "等待行情数据…", x: 12, y: PLOT_TOP, w: [painter.width - 24, 200].min, h: 20,
                       color: Theme::DIM)
             return
           end
@@ -90,17 +95,33 @@ module Market
           draw_last_line(painter, geometry, bars.last[:close], lo, hi)
         end
 
-        # watch: 绘制依赖（换股 / 换模式粒度 / 每档行情）
+        # watch: 绘制依赖（换股 / 换模式粒度 / 每档行情与指标——顶部/底部文字带都画在这里）
         def draw_dependencies
           code = selected.call
           series_for.call(code)
           quote_for.call(code)
+          indicators_for.call(code)
           mode
           bucket
           nil
         end
 
         private
+
+        # 面板顶部/底部的行情文字带（原先是三个原生 label，现画进面板：
+        # 原生 label 的自然高度会把走势图挤扁，且不换行的长行会顶高最小宽度）
+        def draw_quote_text(painter)
+          head_lines = quote_head.split("\n")
+          head_lines.each_with_index do |line, index|
+            painter.text(line, x: 12, y: 6 + index * TEXT_LINE, color: Theme::TEXT, size: Theme::SIZE_BASE)
+          end
+          stats_lines = quote_stats.split("\n") + tech_stats.split("\n")
+          band_top = painter.height - STATS_BAND
+          stats_lines.each_with_index do |line, index|
+            painter.text(line, x: 12, y: band_top + 4 + index * TEXT_LINE, color: Theme::DIM,
+                               size: Theme::SIZE_BASE)
+          end
+        end
 
         # 面板尺寸 → 带位：右侧轴最多占 25% 宽，成交量带最多吃 22% 高。
         # 高度不够时主图优先（成交量带会被画到面板下沿之外，由视图自己的裁剪兜底）。
@@ -110,7 +131,7 @@ module Market
           axis_w = [AXIS_W, (width * 0.25).round].min
           plot_right = [width - axis_w, PAD_L + 1].max
           vol_h = [[VOL_H, (height * 0.22).round].min, VOL_MIN_H].max
-          vol_bottom = height - BOTTOM
+          vol_bottom = height - BOTTOM - STATS_BAND
           plot_bottom = vol_bottom - vol_h - VOL_GAP
           if plot_bottom - PLOT_TOP < MIN_PLOT_H
             plot_bottom = PLOT_TOP + MIN_PLOT_H
@@ -122,8 +143,8 @@ module Market
         end
 
         # 图表头：标的名 + 报价（浏览器版是 .chart-head 那几行）。
-        # 拆两行（原生 label 不换行）：单行 ~355px，会把中列的**最小宽度**顶高——
-        # 三列等宽布局下即窗口最小宽度，见 native/README.md
+        # 两行文字画在面板顶部带（HEAD_BAND）里——原先用原生 label，其自然高度会把
+        # 走势图挤扁（Windows 实测只剩 71px），且不换行的长行会顶高中列最小宽度。
         def quote_head
           quote = quote_for.call(selected.call)
           "#{quote[:name]} · #{quote[:code]} · #{quote[:sector]}\n" \
@@ -131,7 +152,7 @@ module Market
             "#{signed_money(quote[:change])} #{pct(quote[:change_pct])} #{chart_flag(quote)}"
         end
 
-        # 行情快照（读 quote，每档变）。三行而不是一行（原因同上）
+        # 行情快照（读 quote，每档变）。三行画在面板底部带（STATS_BAND）里
         def quote_stats
           quote = quote_for.call(selected.call)
           "今开 #{money(quote[:open])} · 最高 #{money(quote[:high])} · 最低 #{money(quote[:low])}\n" \
@@ -140,7 +161,7 @@ module Market
             "涨停 #{money(quote[:limit_up])} / 跌停 #{money(quote[:limit_down])}"
         end
 
-        # 技术指标（读序列，每档变）；同样拆两行（原因见 quote_head）
+        # 技术指标（读序列，每档变）；两行画在底部带（与 quote_stats 合计 5 行）
         def tech_stats
           indicator = indicators_for.call(selected.call)
           ind = indicator
