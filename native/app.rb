@@ -23,7 +23,7 @@ rescue LoadError
 end
 
 require "citrine"
-require "citrine-native"
+require "citrine-native-libui"
 require "terminal"
 require "telemetry"
 require_relative "views/header"

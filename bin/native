@@ -30,7 +30,7 @@ end
 
 $LOAD_PATH.unshift(File.join(root, "app"), File.join(citrine_root, "lib"), File.join(native_root, "lib"))
 
-require "citrine-native"
+require "citrine-native-libui"
 require_relative "../native/app"
 
 # 退出路径：**先退出主循环，再拆解**（MARKET-1d）。

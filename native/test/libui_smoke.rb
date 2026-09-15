@@ -23,7 +23,7 @@ citrine_root = ENV["CITRINE_ROOT"] || File.expand_path("../citrine", root)
 native_root = ENV["CITRINE_NATIVE_ROOT"] || File.expand_path("../citrine-native", root)
 $LOAD_PATH.unshift(File.join(root, "app"), File.join(citrine_root, "lib"), File.join(native_root, "lib"))
 
-require "citrine-native"
+require "citrine-native-libui"
 require_relative "../app"
 
 SECONDS_TO_RUN = (ENV["SMOKE_SECONDS"] || 5).to_f
