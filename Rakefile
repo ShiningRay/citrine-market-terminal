@@ -73,6 +73,20 @@ end
 desc "提交前检查：单测 + 桩验收 + 跨平台一致性"
 task check: %i[test stubs parity]
 
+# 原生窗口移植（native/）的测试：不需要窗口、不需要 libui，只需要 citrine-native 仓库。
+# 刻意不进 `check`：`check` 守的是浏览器路径，不该因为另一仓库（citrine-native）不在就红。
+namespace :native do
+  desc "原生视图层单测（Memory 桩后端 + Painter::Recording；需 citrine-native）"
+  task :test do
+    sh "ruby #{File.join(ROOT, 'native/test/run.rb')}"
+  end
+
+  desc "真窗口冒烟（会开一个真窗口，几秒后自己关；需要 libui）"
+  task :smoke do
+    sh "ruby #{File.join(ROOT, 'native/test/libui_smoke.rb')}"
+  end
+end
+
 desc "启动 Citrine 开发服务器（热刷新；端口默认 4403）"
 task :dev do
   check_citrine!
