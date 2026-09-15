@@ -63,7 +63,6 @@ module Market
         attr_reader :geometry
 
         def draw(painter)
-          painter.rect(0, 0, painter.width, painter.height, fill: Theme::PANEL, stroke: Theme::LINE)
           draw_quote_text(painter)
           series = series_for.call(selected.call)
           if series.empty?

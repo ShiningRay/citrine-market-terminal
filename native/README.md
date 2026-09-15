@@ -172,14 +172,19 @@ area** 转发（设计文档 2.3）。挂载时应用会自己把焦点拿到自
 一次的心跳回调里），Ruby 会开始展开栈并跑 `teardown`，此时**在强杀下执行 libui 的析构是不
 安全的**（MARKET-2b §9 F5 记录的 `dispose → box_delete` 段错误）。
 
-所以 `bin/native` 把可捕获的终止信号统一接到"`quit` 主循环 → `run` 的 `ensure` 里有序拆解"：
+所以 `bin/native` 把可捕获的终止信号统一接到"`quit` 主循环 → `run` 的 `ensure` 里有序拆解"。
+信号注册现在由框架提供（E3 落地后）：
 
 ```ruby
 app = Citrine::Native.start(...)
-%w[INT TERM HUP QUIT ALRM].each { |signal| trap(signal) { app.quit } }
+app.trap_quit!   # 按 Signal.list 过滤平台实际存在的信号（Windows 没有 HUP/QUIT/ALRM）
 app.widgets.main_loop
 app.teardown
 ```
+
+`trap_quit!` 返回**真正装上**的信号名（便于记日志/断言）；把应用当独立进程跑的脚本也可以
+一步到位：`Citrine::Native.run(MyApp, signals: :default)`。**默认不接管**——`trap` 是进程级的，
+会覆盖宿主已有的处理器，所以库不主动装（有判别用例锁住这条）。
 
 `uiQuit` 本身线程安全，`trap` 在主线程的安全点执行，而主循环里 200ms 一次的心跳回调就是
 那个安全点——所以 Ctrl+C 之后最多 200ms 就走完主循环。实测（每项 3 次，`/tmp/m1d/probe_exit.rb`）：
@@ -193,7 +198,8 @@ app.teardown
 
 > 边界如实写明：**只有不可捕获的 `SIGKILL` 会跳过拆解**。本轮 9 次信号实验（INT/TERM/ALRM
 > 各 3 次）全部 `exit=0`、日志无 `[BUG]`；`SIGKILL` 3/3 干净地消失。若将来有人在
-> `bin/native` 之外启动应用（例如自己 `Citrine::Native.run`），这条保护就没有了。
+> `bin/native` 之外启动应用（例如自己 `Citrine::Native.run` 而没传 `signals:`），
+> 这条保护就没有了——所以框架里的默认是"不接管信号"，要这条保护必须显式要求。
 
 ## 反例与消融实验（MARKET-1d）
 

@@ -35,7 +35,6 @@ module Market
         # ── area 绘制 ─────────────────────────────────────────────
 
         def draw(painter)
-          painter.rect(0, 0, painter.width, painter.height, fill: Theme::PANEL, stroke: Theme::LINE)
           col_w = [(painter.width - PAD * 3) / 2.0, 1.0].max
           curve_top = PAD + METRIC_ROWS * ROW_H + CURVE_GAP
           curve_bottom = painter.height - PAD - LEGEND_H

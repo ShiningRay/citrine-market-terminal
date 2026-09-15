@@ -62,7 +62,6 @@ module Market
 
         def draw(painter)
           @layout = GRID.layout(painter.width, painter.height)
-          painter.rect(0, 0, painter.width, painter.height, fill: Theme::PANEL, stroke: Theme::LINE)
           draw_header(painter)
           codes.call.each_with_index do |code, index|
             break if index >= layout.rows_in

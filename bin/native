@@ -35,7 +35,7 @@ require_relative "../native/app"
 
 # 退出路径：**先退出主循环，再拆解**（MARKET-1d）。
 #
-# 为什么要自己接信号：`Citrine::Native.run` 把 teardown 放在 ensure 里，而 Ruby 对
+# 为什么必须自己接信号：`Citrine::Native.run` 把 teardown 放在 ensure 里，而 Ruby 对
 # 未捕获的终止信号（SIGINT/SIGTERM/…）是**直接终止进程**、不跑 ensure——于是 libui
 # 的窗口/控件被系统回收，而"每个控件由谁销毁"这套记账（框架的 dispose → uiControlDestroy）
 # 完全没走。反过来，若信号恰好落在 Ruby 代码段（例如 200ms 一次的心跳回调里），
@@ -43,19 +43,14 @@ require_relative "../native/app"
 # （MARKET-2b §9 F5：`dispose → box_delete` 段错误；本轮改前实测 3 次里 0 次复现，
 # 但那次记录说明"拆解真的跑起来"才是危险的那条分支）。
 #
-# 所以在启动器里把可捕获的终止信号统一接到"quit 主循环 → run 的 ensure 里有序拆解"：
+# 信号注册现在由框架提供（`App#trap_quit!`，E3）：只在本平台实际存在的信号上装
+# （Windows 没有 HUP/QUIT/ALRM，直接 `trap` 会 ArgumentError），装上之后
 #   · uiQuit 本身线程安全；trap 在主线程的安全点执行，主循环里 200ms 一次的心跳回调
 #     就是那个安全点，所以 Ctrl+C 之后最多 200ms 就走出主循环；
 #   · SIGKILL 不可捕获，进程直接消失（不走析构，也不会踩析构）——这已是唯一一条
 #     "绕过拆解"的路径，实测 3/3 干净（见 native/README.md 的退出路径一节）。
 app = Citrine::Native.start(Market::Native::Terminal, **Market::Native::Terminal::WINDOW)
-# Windows 的 Ruby 不认识 HUP/QUIT/ALRM（trap 直接 ArgumentError），按平台实际
-# 支持的信号注册：macOS 五个全有效，Windows 上只剩 INT/TERM（Ctrl+C / taskkill）
-%w[INT TERM HUP QUIT ALRM].each do |signal|
-  next unless Signal.list.key?(signal)
-
-  trap(signal) { app.quit }
-end
+app.trap_quit!
 app.widgets.main_loop
 app.teardown
 

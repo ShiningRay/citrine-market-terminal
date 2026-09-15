@@ -68,7 +68,6 @@ module Market
         def draw(painter)
           grid = tab == :orders ? ORDER_GRID : TRADE_GRID
           @layout = grid.layout(painter.width, painter.height)
-          painter.rect(0, 0, painter.width, painter.height, fill: Theme::PANEL, stroke: Theme::LINE)
           tab == :orders ? draw_orders(painter) : draw_trades(painter)
         end
 

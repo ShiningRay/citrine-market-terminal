@@ -199,10 +199,15 @@ module Market
         # 脱钩（正是左列塌陷的成因）；非滚动面板又用不了 uiAreaSetSize。不给尺寸时
         # libui 的 Draw 报的是布局尺寸（ui.h：only defined for nonscrolling areas），
         # Painter 的 width/height/clip_rect 三者一致，就是这块面板的可见区。
+        #
+        # 底板（深色背景 + 描边）走**视觉样式**（citrine-native L2 起 area 自动消费）：
+        # 以前每个面板的 draw 里都手写一行 `painter.rect(0, 0, w, h, fill: Theme::PANEL,
+        # stroke: Theme::LINE)`，现在由框架在 on_draw 之前画，应用只管内容。
         def paint_panel(ref, watch:, on_draw:, on_click: nil)
           element(:area,
                   ref: ref,
-                  style: { flex_grow: 1 }, # 吃满面板框分到的空间（原因见 panel_frame）
+                  style: { flex_grow: 1, background: Theme::PANEL,
+                           border: "1px solid #{Theme::LINE}" },
                   watch: watch,
                   on_draw: on_draw,
                   on_click: on_click)
