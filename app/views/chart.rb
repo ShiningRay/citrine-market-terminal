@@ -188,7 +188,7 @@ module Market
         box(css_class: "stat-strip") do
           indicator = indicators_for.call(selected.call)
           kv("SMA5", money(indicator[:sma5]), { color: "#f59e0b" })
-          kv("SMA20", money(indicator[:sma20]), { color: "#38bdf8" })
+          kv("SMA20", money(indicator[:sma20]), { color: Tokens[:sma] })
           kv("RSI14", money(indicator[:rsi], 1))
           kv("逐档波动", pct_abs(indicator[:volatility]))
           label(css_class: "verdict") { "形态：#{indicator[:verdict]}" }

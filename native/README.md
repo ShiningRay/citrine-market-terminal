@@ -20,7 +20,7 @@ native/
 │                          #   #view（原生视图）· 心跳钩子（Native.every）· #fire_tick 的时钟
 │                          #   另加两个挂载钩子：取键盘焦点、设窗口下限（都见下）
 ├── window_size.rb         # 最小可用窗口：macOS 上给 NSWindow 设 contentMinSize（Fiddle 直通 objc）
-├── theme.rb               # 深色主题令牌（与 app/market.html 的 CSS 变量同名同值）
+├── theme.rb               # 深色主题常量（全部从 app/tokens.rb 派生）
 ├── views/
 │   ├── common.rb          # 面板骨架构件 + 自绘表格几何（Grid/Layout）+ 单元格文本/值域映射
 │   ├── chart_data.rb      # 图表 bar 序列（纯函数；与浏览器版 build_bars 逐项一致，有测试锁）

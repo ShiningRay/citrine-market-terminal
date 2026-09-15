@@ -77,7 +77,7 @@ module Market
                       left: "#{Num.round_to(i * slot, 2)}%",
                       width: "#{Num.round_to(slot * 0.9, 2)}%",
                       height: "#{Num.round_to(ratio, 2)}%",
-                      background: value >= points.first ? "#f6465d" : "#0ecb81"
+                      background: value >= points.first ? Tokens[:up] : Tokens[:down]
                     }) {}
               end
             end

@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
 # 格式化（纯 Ruby；不使用 sprintf，规避 CRuby / Opal 的差异）
+require_relative "tokens"
+
 module Market
   module Format
-    UP_COLOR = "#f6465d"     # A 股惯例：红涨
-    DOWN_COLOR = "#0ecb81"   # 绿跌
+    # 涨跌色唯一来源在 Tokens（浏览器 CSS 的 --up/--down、原生 theme 同吃这一份）
+    UP_COLOR = Tokens[:up]     # A 股惯例：红涨
+    DOWN_COLOR = Tokens[:down] # 绿跌
     FLAT_COLOR = "#8b95a8"
 
     module_function

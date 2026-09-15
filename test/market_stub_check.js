@@ -36,7 +36,8 @@ const app = makeEl("div");
 const intervals = [];
 const keyHandlers = [];
 global.window = global;
-global.document = { getElementById: () => app, createElement: (t) => makeEl(t) };
+// 入口的令牌注入（tokens.rb → <style>:root）会 appendChild 到 head
+global.document = { getElementById: () => app, createElement: (t) => makeEl(t), head: makeEl("head") };
 global.addEventListener = (ev, fn) => { if (ev === "keydown") keyHandlers.push(fn); };
 global.setInterval = (fn, ms) => { const id = intervals.length + 1; intervals.push({ id, fn, ms }); return id; };
 global.clearInterval = (id) => { const i = intervals.findIndex((x) => x.id === id); if (i >= 0) intervals.splice(i, 1); };

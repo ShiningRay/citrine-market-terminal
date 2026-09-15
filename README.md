@@ -68,7 +68,9 @@ rake check              # 单测 + 桩验收 + 跨平台一致性（提交前跑
 ```
 ├── app/
 │   ├── market.rb          # 浏览器入口：挂载 + 装埋点 + 暴露验收 API（心跳/快捷键都在组件上）
-│   ├── market.html        # 页面外壳（设计令牌 / 面板样式 / 滚动条）
+│   ├── market.html        # 页面外壳（挂载点 + 外链 styles.css；令牌在 tokens.rb）
+│   ├── tokens.rb          # 设计令牌唯一来源（浏览器 CSS / 视图 / 原生 theme 三处共用）
+│   ├── styles.css         # 浏览器样式表（规则经 var(--x) 引用令牌，无字面量色值）
 │   ├── terminal.rb        # 根组件：全局模型状态、computed 链、心跳（on_mount/on_unmount）、全局键盘、交易动作
 │   │                      #   —— 面板由 `components` 声明为子组件；会变的值以**取值 Proc** 下发
 │   ├── engine.rb          # 行情引擎：随机游走 + 涨跌停 + 成交量 + K 线聚合（含可复现 RNG）
