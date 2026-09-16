@@ -38,6 +38,7 @@
 # （从前是 app/browser_glue.rb，见 FRICTION.md 的 F7/F10）。
 require "native"
 require "citrine"
+require "beryl"
 require_relative "engine"
 require_relative "account"
 require_relative "indicators"
@@ -72,7 +73,6 @@ module Market
     INITIAL_CASH = 1_000_000.0
     CURVE_EVERY = 3          # 权益曲线采样间隔（档）
     AUTO_TRADE_EVERY = 5     # 自动交易间隔（档）
-    NOTICE_TICKS = 40        # 提示信息存活档数
     BEAT_MS = 200            # 心跳间隔（固定的调度节拍）
     TICK_MS = 850            # 1x 速度下一档的间隔
 
@@ -116,7 +116,7 @@ module Market
       @engine = Market::Engine.new(seed: SEED)
       @account = Market::Account.new(cash: INITIAL_CASH)
       @trader_rng = Market::Rng.new(SEED + 7)
-      @notice_expire = 0
+      @toasts = Citrine.signal_list([])   # 瞬时通知队列（push_bounded 封顶，F9）
       @beat_accumulated = 0   # 心跳累积毫秒（够一档才推进，见 #beat）
       @heartbeat_handle = nil
       @in_tick = false
@@ -191,7 +191,6 @@ module Market
               name_for: ->(code) { engine_name(code) },
               position_for: ->(code) { position_of(code) },
               alert: -> { alert },
-              notice: -> { notice },
               estimate: ->(side, quantity, price) { @account.estimate(side, quantity, price) },
               max_buy_for: ->(price) { @account.max_buy_quantity(price) },
               available_for: ->(code) { @account.available(code, @engine.tick) },
@@ -208,6 +207,7 @@ module Market
         end
 
         debug_bar(report: -> { debug_report }, signal_count: -> { signal_inventory })
+        toast_stack
       end
     end
 
@@ -263,7 +263,6 @@ module Market
       @account.mark!(equity_now) if (@engine.tick % CURVE_EVERY).zero?
       auto_trade_step if auto_trade && (@engine.tick % AUTO_TRADE_EVERY).zero?
       announce(fills)
-      expire_notice
       self
     end
 
@@ -651,7 +650,16 @@ module Market
       @engine.signal_count + @account.signal_count
     end
 
+    # 右下角 toast 堆叠：ListSignal 快照枚举 + 到期按序号删（beryl demo 同款）
+    def toast_stack
+      @toasts.each_with_index do |t, i|
+        Beryl::Toast.new(msg: t["text"], kind: t["kind"], duration_ms: 3500,
+                         on_expire: -> { @toasts.delete_at(i) }).view
+      end
+    end
+
     def clear_notice
+      @toasts.replace([])
       self.notice = { kind: :info, text: "" }
       self
     end
@@ -691,17 +699,15 @@ module Market
       end
     end
 
+    # 瞬时通知：镜像写进 notice（test_state_text / 调试读数用），渲染走 toast 队列
+    # （Beryl::Toast 的 auto_dismiss 到期自删，不再按 tick 数手写过期）
     def set_notice(kind, text)
-      @notice_expire = @engine.tick + NOTICE_TICKS
       self.notice = { kind: kind, text: text }
+      @toasts.push_bounded({ "kind" => TOAST_KINDS.fetch(kind, "info"), "text" => text }, 4)
+      self
     end
 
-    def expire_notice
-      return if notice[:text].to_s.empty?
-      return if @engine.tick < @notice_expire
-
-      self.notice = { kind: :info, text: "" }
-    end
+    TOAST_KINDS = { info: "info", ok: "success", warn: "warn" }.freeze
 
     def parse_quantity(text)
       cleaned = text.to_s.strip.gsub(",", "")

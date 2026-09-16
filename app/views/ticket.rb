@@ -21,7 +21,6 @@ module Market
       prop :name_for        # ->(code) { engine_name(code) }   非响应式（提交按钮文案用）
       prop :position_for    # ->(code) { 持仓快照 | nil }
       prop :alert           # -> { alert }      最近一次委托结果（含跨面板动作）
-      prop :notice          # -> { notice }     全局提示
       prop :estimate        # ->(side, quantity, price) { 费用预估 }
       prop :max_buy_for     # ->(price) { 该价位的最大可买 }
       prop :available_for   # ->(code) { 该标的当前可用（T+1 后）}
@@ -97,11 +96,9 @@ module Market
             end
           end
 
-          box(css_class: "tk-notice") do # 读 notice（内层标签只用局部变量）
-            current = notice.call
-            kind = current[:kind]
-            text = current[:text].to_s
-            label(css_class: "notice notice-#{kind}") { text.empty? ? "—" : text }
+          # 常驻免责声明（瞬时通知已迁往右下角 toast 堆叠，不再借用这一行）
+          box(css_class: "tk-notice") do
+            label(css_class: "notice notice-info") { "本地模拟盘：数据为随机生成，与真实行情无关" }
           end
         end
       end

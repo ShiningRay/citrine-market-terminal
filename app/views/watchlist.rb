@@ -31,7 +31,7 @@ module Market
             label(css_class: "wl-cn") { name }
             # 持仓标记：读 ledger（仅成交时变化）
             box(css_class: "wl-badge-slot") do
-              label(css_class: "badge badge-hold") { "持" } if held?
+              Beryl::Badge.new(text: "持", css_class: "badge-hold").view if held?
             end
           end
 

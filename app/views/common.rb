@@ -50,8 +50,14 @@ module Market
         end
       end
 
+      # chip：语义上是按钮——走 Beryl::Button（kind/size/disabled 契约统一），
+      # 保留 chip/is-on 类名：样式与桩断言（按文本找 button、is-on 激活态）零改动。
+      # 必须经 render()（keyed 组件槽位）而不是 .new().view：后者每次父重渲染都
+      # 新建实例，元素 owner 随之更换，keyed/位置复用全部失效（DOM 身份丢失）。
       def chip(text, active, handler)
-        button(on_click: handler, css_class: active ? "chip is-on" : "chip") { text }
+        render(Beryl::Button, text: text, kind: :ghost, size: :sm,
+                             css_class: active ? "chip is-on" : "chip",
+                             on_click: handler)
       end
 
       # 单行指标：调用方在 block 里求值（读信号由调用方负责）

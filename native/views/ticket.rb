@@ -95,16 +95,21 @@ module Market
           end
         end
 
-        def alert_text
-          result = alert.call
-          "委托结果：#{result ? result[:text] : '—'}"
-        end
+        # 浏览器侧瞬时通知走 toast 堆叠（app 版已删此 prop）；原生侧无浮层宿主，
+        # 保留"单行最新提示"——prop 由本子类自有声明，不影响 app 版契约
+        prop :notice          # -> { notice }     全局提示
 
         def notice_text
           current = notice.call
           text = current[:text].to_s
           "提示：#{text.empty? ? '—' : text}"
         end
+
+        def alert_text
+          result = alert.call
+          "委托结果：#{result ? result[:text] : '—'}"
+        end
+
       end
     end
   end

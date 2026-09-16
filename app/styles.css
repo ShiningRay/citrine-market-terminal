@@ -214,4 +214,20 @@
     @media (prefers-reduced-motion: reduce) {
       .chip, .wl-row, .btn-submit { transition: none; }
     }
-  
+
+    /* ── Beryl 组件（M7 引入）────────────────────────────────
+     * chip 走 Beryl::Button 但外观仍由 .chip 规则全权负责（b-btn 系类在此
+     * 无规则、故意不着色，避免与既有样式打架）；这里只给真正新增的 UI：
+     * toast 堆叠与 badge。色值经 var(--x) 引用令牌（up/down 即本仓的语义
+     * 红绿，warn/accent/panel 同理）。 */
+    .b-toast { position: fixed; right: 16px; bottom: 16px; background: var(--panel);
+               border: 1px solid var(--line); border-left: 3px solid var(--accent);
+               border-radius: 8px; padding: 8px 14px; z-index: 4200; cursor: pointer;
+               max-width: 360px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+    .b-toast.success { border-left-color: var(--down); }
+    .b-toast.warn    { border-left-color: var(--warn); }
+    .b-toast.error   { border-left-color: var(--up); }
+    .b-toast-row { align-items: center; gap: 10px; }
+    .b-toast-action { margin-left: 8px; padding: 1px 8px; font-size: 12px; }
+    .b-badge { display: inline-block; padding: 0 4px; border-radius: 4px;
+               font-size: 10px; line-height: 14px; }

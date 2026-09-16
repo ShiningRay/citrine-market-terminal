@@ -17,6 +17,7 @@ CITRINE_ROOT = ENV["CITRINE_ROOT"] || File.expand_path("../citrine", ROOT)
 CITRINE_LIB = File.join(CITRINE_ROOT, "lib")
 
 OPAL = ENV["OPAL"] || "opal"
+BERYL_LIB = ENV.fetch("BERYL_PATH", File.expand_path("../beryl/lib", __dir__))
 
 def check_citrine!
   return if File.directory?(CITRINE_LIB)
@@ -39,7 +40,7 @@ desc "编译 app/market.rb → app/market.js"
 task :build do
   check_citrine!
   Dir.chdir(APP) do
-    sh "#{OPAL} -c -I#{CITRINE_LIB} -I. -o market.js market.rb"
+    sh "#{OPAL} -c -I#{CITRINE_LIB} -I#{BERYL_LIB} -I. -o market.js market.rb"
   end
 end
 
